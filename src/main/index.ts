@@ -4,6 +4,7 @@ import {
   ipcMain,
   Menu,
   nativeImage,
+  powerMonitor,
   safeStorage,
   screen,
   Tray,
@@ -11,9 +12,11 @@ import {
   type IpcMainInvokeEvent,
   type Rectangle
 } from 'electron'
+import { execFile } from 'node:child_process'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import type {
+  ActivityProbe,
   AppSettings,
   BondData,
   ChatMode,
@@ -49,7 +52,9 @@ const DEFAULT_SETTINGS: StoredSettings = {
   awakeGraceMinutes: 15,
   mealTimesEnabled: true,
   weatherEnabled: false,
-  weatherLocation: ''
+  weatherLocation: '',
+  careEnabled: true,
+  careIntervalMinutes: 90
 }
 
 const WEATHER_REFRESH_INTERVAL_MS = 60 * 60 * 1000
@@ -169,7 +174,9 @@ class SettingsStore {
       awakeGraceMinutes: this.data.awakeGraceMinutes,
       mealTimesEnabled: this.data.mealTimesEnabled,
       weatherEnabled: this.data.weatherEnabled,
-      weatherLocation: this.data.weatherLocation
+      weatherLocation: this.data.weatherLocation,
+      careEnabled: this.data.careEnabled,
+      careIntervalMinutes: this.data.careIntervalMinutes
     }
   }
 
@@ -279,6 +286,15 @@ class SettingsStore {
     if (typeof patch.weatherEnabled === 'boolean') this.data.weatherEnabled = patch.weatherEnabled
     if (typeof patch.weatherLocation === 'string') this.data.weatherLocation = patch.weatherLocation.trim().slice(0, 120)
 
+    if (typeof patch.careEnabled === 'boolean') this.data.careEnabled = patch.careEnabled
+
+    if (patch.careIntervalMinutes !== undefined) {
+      if (!Number.isFinite(patch.careIntervalMinutes) || patch.careIntervalMinutes < 30 || patch.careIntervalMinutes > 600) {
+        throw new Error('关怀间隔应在 30 到 600 分钟之间。')
+      }
+      this.data.careIntervalMinutes = Math.round(patch.careIntervalMinutes)
+    }
+
     if (patch.clearApiKey) delete this.data.apiKeyEncrypted
 
     if (typeof patch.apiKey === 'string' && patch.apiKey.trim()) {
@@ -301,6 +317,32 @@ class SettingsStore {
       return undefined
     }
   }
+}
+
+/** 读取前台窗口标题（user32 API，失败返回空串） */
+function probeActiveWindowTitle(timeoutMs = 1500): Promise<string> {
+  return new Promise((resolve) => {
+    const script = [
+      '[Console]::OutputEncoding = [System.Text.Encoding]::UTF8;',
+      "$code = 'using System; using System.Runtime.InteropServices; public class DeepSeaWin { [DllImport(\"user32.dll\")] public static extern IntPtr GetForegroundWindow(); [DllImport(\"user32.dll\", CharSet = CharSet.Unicode)] public static extern int GetWindowText(IntPtr hWnd, System.Text.StringBuilder text, int count); }';",
+      'Add-Type -TypeDefinition $code;',
+      '$sb = New-Object System.Text.StringBuilder 256;',
+      '$null = [DeepSeaWin]::GetWindowText([DeepSeaWin]::GetForegroundWindow(), $sb, 256);',
+      '$sb.ToString()'
+    ].join(' ')
+    execFile(
+      'powershell.exe',
+      ['-NoProfile', '-NonInteractive', '-Command', script],
+      { timeout: timeoutMs, windowsHide: true, maxBuffer: 64 * 1024 },
+      (error, stdout) => {
+        if (error) {
+          resolve('')
+          return
+        }
+        resolve(stdout.trim())
+      }
+    )
+  })
 }
 
 async function resolveCoordinates(
@@ -631,6 +673,16 @@ function registerIpc(): void {
       .filter((id): id is number => typeof id === 'number' && Number.isFinite(id))
       .slice(0, 50)
     return settingsStore.markMilestones(ids)
+  })
+
+  ipcMain.handle('activity:probe', async (event): Promise<ActivityProbe> => {
+    ensureTrustedInvoke(event)
+    const idleSeconds = powerMonitor.getSystemIdleTime()
+    const activeWindowTitle = await probeActiveWindowTitle()
+    return {
+      idleSeconds: Number.isFinite(idleSeconds) ? idleSeconds : null,
+      activeWindowTitle
+    }
   })
 
   ipcMain.handle('window:set-mode', (event, rawMode: unknown) => {

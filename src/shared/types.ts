@@ -28,6 +28,10 @@ export interface AppSettings {
   weatherEnabled: boolean
   /** 天气城市名或 纬度,经度，留空则不定位 */
   weatherLocation: string
+  /** 主动关怀开关 */
+  careEnabled: boolean
+  /** 关怀间隔分钟（实际等待 ±15% 随机） */
+  careIntervalMinutes: number
 }
 
 export interface SettingsPatch {
@@ -48,6 +52,16 @@ export interface SettingsPatch {
   mealTimesEnabled?: boolean
   weatherEnabled?: boolean
   weatherLocation?: string
+  careEnabled?: boolean
+  careIntervalMinutes?: number
+}
+
+/** 主动关怀：主进程对用户活动的探测结果 */
+export interface ActivityProbe {
+  /** 系统空闲秒数，读取失败为 null */
+  idleSeconds: number | null
+  /** 前台窗口标题，读取失败为空串 */
+  activeWindowTitle: string
 }
 
 /** 天气数据（主进程拉取并缓存） */
@@ -95,5 +109,6 @@ export interface PetBridge {
   getBond: () => Promise<BondData>
   recordFocus: (minutes: number) => Promise<BondData>
   markMilestones: (ids: number[]) => Promise<BondData>
+  probeActivity: () => Promise<ActivityProbe>
   onAction: (callback: (action: PetAction) => void) => () => void
 }

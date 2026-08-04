@@ -1,5 +1,6 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import type {
+  ActivityProbe,
   AppSettings,
   BondData,
   ChatMessage,
@@ -34,6 +35,7 @@ const bridge: PetBridge = {
     ipcRenderer.invoke('bond:record-focus', minutes),
   markMilestones: (ids: number[]): Promise<BondData> =>
     ipcRenderer.invoke('bond:mark-milestones', ids),
+  probeActivity: (): Promise<ActivityProbe> => ipcRenderer.invoke('activity:probe'),
   onAction: (callback: (action: PetAction) => void): (() => void) => {
     const listener = (_event: Electron.IpcRendererEvent, action: PetAction): void => callback(action)
     ipcRenderer.on('pet:action', listener)

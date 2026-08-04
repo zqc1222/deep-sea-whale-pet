@@ -10,6 +10,7 @@ import {
   type PointerEvent as ReactPointerEvent
 } from 'react'
 import type {
+  ActivityProbe,
   AppSettings,
   BondData,
   ChatMessage,
@@ -126,7 +127,9 @@ const DEFAULT_SETTINGS: AppSettings = {
   awakeGraceMinutes: 15,
   mealTimesEnabled: true,
   weatherEnabled: false,
-  weatherLocation: ''
+  weatherLocation: '',
+  careEnabled: true,
+  careIntervalMinutes: 90
 }
 
 const BUBBLES = [
@@ -197,6 +200,69 @@ function formatBondDuration(seconds: number): string {
   const hours = seconds / 3600
   if (hours >= 1) return `${Math.round(hours * 10) / 10} 小时`
   return `${Math.max(1, Math.round(seconds / 60))} 分钟`
+}
+
+/** 主动关怀：按前台窗口标题分类的台词（按数组顺序匹配，先到先得） */
+const CARE_CATEGORIES: ReadonlyArray<{ match: RegExp; lines: readonly string[] }> = [
+  {
+    match: /vscode|visual studio|code|intellij|idea|pycharm|webstorm|sublime|atom|terminal|cmd|powershell|clion|eclipse|notepad/i,
+    lines: [
+      '看到你在写代码…这个思路应该能走通，加油。',
+      '代码正在生长，我替你守着海面。',
+      '写累了就深呼吸，回头再看这一行。'
+    ]
+  },
+  {
+    match: /chrome|edge|firefox|browser|浏览器|知乎|微博|百度|bilibili|douyin|youtube/i,
+    lines: [
+      '逛到好东西了吗？记得喝口水。',
+      '网上冲浪记得换气，鲸鱼也是。'
+    ]
+  },
+  {
+    match: /steam|game|游戏|league|原神|minecraft|dota|valorant|epic/i,
+    lines: [
+      '劳逸结合，赢一局就起来走走。',
+      '这把打完，让眼睛看看远处。'
+    ]
+  },
+  {
+    match: /word|excel|powerpoint|wps|office|文档|表格|ppt/i,
+    lines: [
+      '文档改得怎么样了？眼睛歇一歇。',
+      '写字也是一种静潜，慢慢来。'
+    ]
+  },
+  {
+    match: /potplayer|player|music|音乐|网易云|qq音乐|spotify|爱奇艺|优酷|腾讯视频/i,
+    lines: [
+      '看得很投入嘛…别熬太晚。',
+      '这旋律不错，我也跟着摇尾巴。'
+    ]
+  }
+]
+
+const CARE_IDLE_LINES = [
+  '你好像离开了一会儿…我帮你守着桌面。',
+  '海面很安静，我在这等你回来。'
+]
+
+const CARE_FALLBACK_LINES = [
+  '还在忙吗？我替你看着时间。',
+  '深海频道随时在线，需要就双击我。'
+]
+
+function pickCareLine(probe: ActivityProbe): string {
+  if (probe.idleSeconds !== null && probe.idleSeconds > 300) {
+    return randomLine(CARE_IDLE_LINES)
+  }
+  const title = probe.activeWindowTitle
+  if (title) {
+    for (const category of CARE_CATEGORIES) {
+      if (category.match.test(title)) return randomLine(category.lines)
+    }
+  }
+  return randomLine(CARE_FALLBACK_LINES)
 }
 
 function initialChatMessages(settings: AppSettings): UiMessage[] {
@@ -490,6 +556,43 @@ export function App(): React.JSX.Element {
       disposed = true
     }
   }, [showBubble])
+
+  // 主动关怀：醒着时按随机间隔探测用户活动并主动搭话
+  useEffect(() => {
+    if (!settings.careEnabled || isSleeping || mode !== 'pet' || !isPageVisible) {
+      return undefined
+    }
+    let disposed = false
+    let timer: number | undefined
+
+    const fire = async (): Promise<void> => {
+      if (disposed) return
+      try {
+        const probe = await petBridge.probeActivity()
+        if (disposed) return
+        showBubble(pickCareLine(probe), 'happy', 3600)
+        playChime(settings.soundEnabled)
+      } catch {
+        if (!disposed) showBubble(randomLine(CARE_FALLBACK_LINES), 'happy', 3600)
+      }
+      scheduleNext()
+    }
+
+    const scheduleNext = (): void => {
+      if (disposed) return
+      const demoMinutes = isElectron ? null : Number(new URLSearchParams(window.location.search).get('care'))
+      const delayMs = demoMinutes !== null && Number.isFinite(demoMinutes) && demoMinutes > 0
+        ? Math.round(demoMinutes * 1000)  // 演示模式单位是秒（?care=20 → 20 秒）
+        : Math.round(settings.careIntervalMinutes * 60_000 * (0.85 + Math.random() * 0.3))
+      timer = window.setTimeout(() => { void fire() }, delayMs)
+    }
+
+    scheduleNext()
+    return () => {
+      disposed = true
+      if (timer) window.clearTimeout(timer)
+    }
+  }, [settings.careEnabled, settings.careIntervalMinutes, isSleeping, mode, isPageVisible, showBubble, settings.soundEnabled])
 
   useEffect(() => {
     const today = new Date().toISOString().slice(0, 10)
@@ -1487,7 +1590,9 @@ function SettingsPanel({ settings, bond, onSettingsChange }: SettingsPanelProps)
       awakeGraceMinutes: draft.awakeGraceMinutes,
       mealTimesEnabled: draft.mealTimesEnabled,
       weatherEnabled: draft.weatherEnabled,
-      weatherLocation: draft.weatherLocation
+      weatherLocation: draft.weatherLocation,
+      careEnabled: draft.careEnabled,
+      careIntervalMinutes: draft.careIntervalMinutes
     }
     if (apiKey.trim()) patch.apiKey = apiKey
     try {
@@ -1664,11 +1769,35 @@ function SettingsPanel({ settings, bond, onSettingsChange }: SettingsPanelProps)
             <p className="security-note">天气来自 Open-Meteo 免费接口，需要网络；获取失败会自动静默，不影响桌宠。</p>
           </div>
         </section>
+
+        <section className="setting-section">
+          <div className="section-title"><span>06</span><div><h2>主动关怀</h2><p>醒着时主动看看你在做什么。</p></div></div>
+          <Toggle
+            label="主动关怀"
+            description="每隔一段时间主动搭话"
+            checked={draft.careEnabled}
+            onChange={(value) => setDraft({ ...draft, careEnabled: value })}
+          />
+          <div className={`schedule-fields ${draft.careEnabled ? '' : 'is-standby'}`}>
+            <label className="grace-field">
+              <span>关怀间隔</span>
+              <select
+                value={String(draft.careIntervalMinutes)}
+                onChange={(event) => setDraft({ ...draft, careIntervalMinutes: Number(event.target.value) })}
+              >
+                <option value="60">1 小时</option>
+                <option value="90">1.5–2 小时</option>
+                <option value="180">3 小时</option>
+              </select>
+            </label>
+            <p className="security-note">只读取当前窗口标题与空闲时间，不截屏、不记录、不上传。</p>
+          </div>
+        </section>
       </div>
 
       <div className="settings-column model-settings">
         <section className="setting-section api-section">
-          <div className="section-title"><span>05</span><div><h2>聊天频道</h2><p>随时切换，不会清除已保存的配置。</p></div></div>
+          <div className="section-title"><span>07</span><div><h2>聊天频道</h2><p>随时切换，不会清除已保存的配置。</p></div></div>
           <div className="model-mode-selector" role="radiogroup" aria-label="聊天模式">
             <button type="button" role="radio" aria-checked={draft.chatMode === 'local'} className={draft.chatMode === 'local' ? 'active' : ''} onClick={() => setDraft({ ...draft, chatMode: 'local' })}>
               <i />
@@ -1724,7 +1853,7 @@ function SettingsPanel({ settings, bond, onSettingsChange }: SettingsPanelProps)
         </section>
 
         <section className="setting-section">
-          <div className="section-title"><span>06</span><div><h2>羁绊档案</h2><p>陪伴有迹可循。</p></div></div>
+          <div className="section-title"><span>08</span><div><h2>羁绊档案</h2><p>陪伴有迹可循。</p></div></div>
           <div className="bond-stats">
             <div className="bond-stat"><strong>{bond?.days ?? 1}</strong><span>陪伴天数</span></div>
             <div className="bond-stat"><strong>{formatBondDuration(bond?.totalFocusSeconds ?? 0)}</strong><span>累计专注</span></div>

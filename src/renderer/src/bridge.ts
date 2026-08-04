@@ -1,4 +1,5 @@
 import type {
+  ActivityProbe,
   AppSettings,
   BondData,
   ChatResult,
@@ -26,7 +27,9 @@ const defaults: AppSettings = {
   awakeGraceMinutes: 15,
   mealTimesEnabled: true,
   weatherEnabled: false,
-  weatherLocation: ''
+  weatherLocation: '',
+  careEnabled: true,
+  careIntervalMinutes: 90
 }
 
 function loadDemoSettings(): AppSettings {
@@ -120,6 +123,22 @@ const demoBridge: PetBridge = {
     const updated = { ...bond, milestonesSeen: [...new Set([...bond.milestonesSeen, ...ids])] }
     saveDemoBond(updated)
     return updated
+  },
+  probeActivity: async (): Promise<ActivityProbe> => {
+    const params = new URLSearchParams(window.location.search)
+    const windowType = params.get('window')
+    const idle = params.get('idle')
+    const demoWindows: Record<string, string> = {
+      code: 'Visual Studio Code - App.tsx',
+      game: 'League of Legends',
+      browser: 'Chrome - 哔哩哔哩',
+      doc: 'Word - 报告.docx',
+      media: 'PotPlayer - 视频'
+    }
+    return {
+      idleSeconds: idle ? Number(idle) : null,
+      activeWindowTitle: windowType ? (demoWindows[windowType] ?? '') : ''
+    }
   },
   onAction: () => () => undefined
 }
