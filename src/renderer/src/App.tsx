@@ -838,6 +838,7 @@ export function App(): React.JSX.Element {
         idleAccent={idleAccent}
         isSleeping={isSleeping}
         weatherClass={weatherClass}
+        reducedMotion={settings.reducedMotion}
         personaState={visiblePersonaState}
         petGender={settings.petGender}
         onClick={handlePetClick}
@@ -912,6 +913,7 @@ interface PetStageProps {
   idleAccent: IdleAccent
   isSleeping: boolean
   weatherClass: string
+  reducedMotion: boolean
   personaState: PersonaState
   petGender: PetGender
   onClick: (event: ReactMouseEvent<HTMLDivElement>) => void
@@ -922,6 +924,208 @@ interface PetStageProps {
   onContextMenu: (event: ReactMouseEvent<HTMLDivElement>) => void
   onOpen: (mode: WindowMode) => Promise<void>
   onCyclePersona: () => void
+}
+
+interface RainDrop {
+  x: number
+  y: number
+  depth: number
+  len: number
+  width: number
+  speed: number
+  drift: number
+  alpha: number
+  age: number
+}
+
+interface Splash {
+  x: number
+  y: number
+  vx: number
+  vy: number
+  life: number
+  maxLife: number
+  size: number
+}
+
+const WIND_DRIFT = 42
+
+/** Canvas 2D 雨粒子系统：随机尺寸/速度/透明度/风向倾斜，近中远景深，落地水花 */
+function RainSystem({ active }: { active: boolean }): React.JSX.Element | null {
+  const backRef = useRef<HTMLCanvasElement>(null)
+  const frontRef = useRef<HTMLCanvasElement>(null)
+
+  useEffect(() => {
+    const back = backRef.current
+    const front = frontRef.current
+    if (!active || !back || !front) return undefined
+    const host = back.parentElement
+    if (!host) return undefined
+
+    const dpr = Math.min(window.devicePixelRatio || 1, 2)
+    const width = host.clientWidth
+    const height = host.clientHeight
+    if (width <= 0 || height <= 0) return undefined
+    back.width = Math.round(width * dpr)
+    back.height = Math.round(height * dpr)
+    front.width = Math.round(width * dpr)
+    front.height = Math.round(height * dpr)
+    const backCtx = back.getContext('2d')
+    const frontCtx = front.getContext('2d')
+    if (!backCtx || !frontCtx) return undefined
+    backCtx.scale(dpr, dpr)
+    frontCtx.scale(dpr, dpr)
+
+    const random = (min: number, max: number): number => min + Math.random() * (max - min)
+
+    const spawnDrop = (): RainDrop => {
+      const depth = Math.random()
+      return {
+        x: random(-30, width + 30),
+        y: random(-80, height),
+        depth,
+        len: random(3, 8) + depth * random(10, 18),
+        width: random(0.6, 1.1) + depth * random(0.6, 1.1),
+        speed: random(110, 190) + depth * random(200, 320),
+        drift: WIND_DRIFT * (0.55 + depth * 0.8) + random(-14, 14),
+        alpha: random(0.12, 0.22) + depth * random(0.16, 0.3),
+        age: random(-2, 0)
+      }
+    }
+
+    const drops: RainDrop[] = Array.from({ length: 620 }, spawnDrop)
+
+    const closeDrops: RainDrop[] = Array.from({ length: 42 }, () => ({
+      x: random(-40, width + 40),
+      y: random(-80, height),
+      depth: 1.15 + Math.random() * 0.35,
+      len: random(16, 34),
+      width: random(1.1, 1.9),
+      speed: random(520, 900),
+      drift: WIND_DRIFT * 1.35 + random(-26, 26),
+      alpha: random(0.16, 0.38),
+      age: random(-1.2, 0)
+    }))
+
+    const splashes: Splash[] = []
+
+    const spawnSplash = (x: number, y: number): void => {
+      if (splashes.length > 110) return
+      const count = 2 + Math.floor(Math.random() * 2)
+      for (let i = 0; i < count; i += 1) {
+        splashes.push({
+          x: x + random(-2, 2),
+          y,
+          vx: random(-36, 36),
+          vy: random(-70, -24),
+          life: random(0.22, 0.45),
+          maxLife: 0.45,
+          size: random(0.8, 1.7)
+        })
+      }
+    }
+
+    let raf = 0
+    let disposed = false
+    let last = performance.now()
+
+    const tick = (now: number): void => {
+      if (disposed) return
+      const dt = Math.min((now - last) / 1000, 0.05)
+      last = now
+
+      // 主雨（角色之后的远景/中景层）
+      backCtx.clearRect(0, 0, width, height)
+      backCtx.lineCap = 'round'
+      for (const drop of drops) {
+        drop.age += dt
+        drop.y += drop.speed * dt
+        drop.x += drop.drift * dt
+        if (drop.y > height + drop.len) {
+          Object.assign(drop, spawnDrop())
+          drop.y = -random(10, 80)
+          drop.age = 0
+          if (Math.random() < 0.32) spawnSplash(drop.x - drop.drift * 0.01, height - random(2, 8))
+        }
+        const fadeIn = Math.min(1, (drop.age + 2) * 1.1)
+        const slant = (drop.drift / drop.speed) * drop.len * 0.55
+        backCtx.globalAlpha = Math.max(0, drop.alpha * fadeIn)
+        backCtx.strokeStyle = '#a9d6ff'
+        backCtx.lineWidth = drop.width
+        backCtx.beginPath()
+        backCtx.moveTo(drop.x, drop.y)
+        backCtx.lineTo(drop.x + slant, drop.y + drop.len)
+        backCtx.stroke()
+      }
+
+      // 湿润地面光带（水坑反射感）
+      const wet = backCtx.createLinearGradient(0, height - 34, 0, height)
+      wet.addColorStop(0, 'rgba(140, 200, 240, 0)')
+      wet.addColorStop(1, 'rgba(150, 205, 245, 0.2)')
+      backCtx.fillStyle = wet
+      backCtx.fillRect(0, height - 34, width, 34)
+
+      // 镜头雨（角色之前的前景层）
+      frontCtx.clearRect(0, 0, width, height)
+      frontCtx.lineCap = 'round'
+      for (const drop of closeDrops) {
+        drop.age += dt
+        drop.y += drop.speed * dt
+        drop.x += drop.drift * dt
+        if (drop.y > height + drop.len || drop.x > width + 60 || drop.x < -90) {
+          drop.x = random(-40, width + 40)
+          drop.y = -random(60, 180)
+          drop.age = 0
+        }
+        const fadeIn = Math.min(1, (drop.age + 0.6) * 3)
+        const slant = (drop.drift / drop.speed) * drop.len * 0.55
+        frontCtx.globalAlpha = Math.max(0, drop.alpha * fadeIn)
+        frontCtx.strokeStyle = '#b8dcff'
+        frontCtx.lineWidth = drop.width
+        frontCtx.beginPath()
+        frontCtx.moveTo(drop.x, drop.y)
+        frontCtx.lineTo(drop.x + slant, drop.y + drop.len)
+        frontCtx.stroke()
+      }
+
+      // 落地水花
+      for (let i = splashes.length - 1; i >= 0; i -= 1) {
+        const splash = splashes[i]
+        if (!splash) continue
+        splash.life -= dt
+        if (splash.life <= 0) {
+          splashes.splice(i, 1)
+          continue
+        }
+        splash.x += splash.vx * dt
+        splash.y += splash.vy * dt
+        splash.vy += 160 * dt
+        const k = splash.life / splash.maxLife
+        frontCtx.globalAlpha = 0.5 * k
+        frontCtx.fillStyle = '#cfe9ff'
+        frontCtx.beginPath()
+        frontCtx.arc(splash.x, splash.y, splash.size * k, 0, Math.PI * 2)
+        frontCtx.fill()
+      }
+      frontCtx.globalAlpha = 1
+
+      raf = requestAnimationFrame(tick)
+    }
+
+    raf = requestAnimationFrame(tick)
+    return () => {
+      disposed = true
+      cancelAnimationFrame(raf)
+    }
+  }, [active])
+
+  if (!active) return null
+  return (
+    <>
+      <canvas ref={backRef} className="rain-canvas rain-back" aria-hidden="true" />
+      <canvas ref={frontRef} className="rain-canvas rain-front" aria-hidden="true" />
+    </>
+  )
 }
 
 function PetStage(props: PetStageProps): React.JSX.Element {
@@ -1002,6 +1206,8 @@ function PetStage(props: PetStageProps): React.JSX.Element {
         </div>
       </div>
 
+      {props.weatherClass && <span className="weather-layer" aria-hidden="true" />}
+      {props.weatherClass.includes('rain') && <RainSystem active={!props.reducedMotion} />}
       {props.mode === 'pet' && (
         <>
           <div className="quick-dock" onPointerDown={(event) => event.stopPropagation()}>
