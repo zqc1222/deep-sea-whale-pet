@@ -11,10 +11,12 @@ import {
 } from 'react'
 import type {
   AppSettings,
+  BondData,
   ChatMessage,
   PetAction,
   PetGender,
   SettingsPatch,
+  WeatherData,
   WindowMode
 } from '../../shared/types'
 import whaleGirl from '../assets/whale-girl.png'
@@ -122,7 +124,9 @@ const DEFAULT_SETTINGS: AppSettings = {
   sleepStart: '21:00',
   sleepEnd: '08:00',
   awakeGraceMinutes: 15,
-  mealTimesEnabled: true
+  mealTimesEnabled: true,
+  weatherEnabled: false,
+  weatherLocation: ''
 }
 
 const BUBBLES = [
@@ -160,6 +164,40 @@ const MEAL_WINDOWS: ReadonlyArray<readonly [number, number]> = [
 ]
 
 const AWAKE_UNTIL_KEY = 'deepsea-whale-pet:awake-until'
+
+const WEATHER_LINES: Record<Exclude<WeatherData['condition'], 'unknown'>, string> = {
+  clear: '阳光正好，晒晒尾巴。',
+  clouds: '云层厚厚一层，海面灰灰的。',
+  rain: '今天海面有点阴沉…记得带伞。',
+  snow: '下雪啦！深海的雪是安静的白。',
+  thunder: '轰——！尾巴都竖起来了。'
+}
+
+const COLD_WEATHER_LINE = '外面好冷，别冻着。'
+
+interface Milestone {
+  id: number
+  label: string
+  hint: string
+  line: string
+  reached: (days: number, focusHours: number) => boolean
+}
+
+const MILESTONES: Milestone[] = [
+  { id: 1, label: '初遇', hint: '陪伴 1 天', line: '第一天，我们认识啦。', reached: (days) => days >= 1 },
+  { id: 2, label: '一周守望', hint: '陪伴 7 天', line: '一周了，深海有灯塔在等你回来。', reached: (days) => days >= 7 },
+  { id: 3, label: '满月', hint: '陪伴 30 天', line: '一个月，你已经是我最熟悉的海面。', reached: (days) => days >= 30 },
+  { id: 4, label: '百日灯塔', hint: '陪伴 100 天', line: '一百天，这片海只对你亮灯。', reached: (days) => days >= 100 },
+  { id: 5, label: '静潜初航', hint: '专注累计 1 小时', line: '静潜初航：第一个小时的专注。', reached: (_days, hours) => hours >= 1 },
+  { id: 6, label: '静潜大师', hint: '专注累计 10 小时', line: '静潜大师：十小时，海面为你静默。', reached: (_days, hours) => hours >= 10 },
+  { id: 7, label: '深海领航员', hint: '专注累计 50 小时', line: '深海领航员：五十小时，节奏你说了算。', reached: (_days, hours) => hours >= 50 }
+]
+
+function formatBondDuration(seconds: number): string {
+  const hours = seconds / 3600
+  if (hours >= 1) return `${Math.round(hours * 10) / 10} 小时`
+  return `${Math.max(1, Math.round(seconds / 60))} 分钟`
+}
 
 function initialChatMessages(settings: AppSettings): UiMessage[] {
   const apiConfigured = settings.hasApiKey && Boolean(settings.apiBaseUrl && settings.model)
@@ -303,6 +341,10 @@ export function App(): React.JSX.Element {
   const [awakeUntil, setAwakeUntil] = useState<number>(readAwakeUntil)
   const wasSleeping = useRef(false)
   const wokeManually = useRef(false)
+  const [weather, setWeather] = useState<WeatherData>({ connected: false, condition: 'unknown', tempC: null, updatedAt: null })
+  const [bond, setBond] = useState<BondData | null>(null)
+  const lastWeatherCondition = useRef<WeatherData['condition']>('unknown')
+  const lastWeatherTemp = useRef<number | null>(null)
   const bubbleTimer = useRef<number | undefined>(undefined)
   const moodTimer = useRef<number | undefined>(undefined)
   const clickTimer = useRef<number | undefined>(undefined)
@@ -331,6 +373,10 @@ export function App(): React.JSX.Element {
 
   /** 睡觉时用 sleeping 情绪驱动现有睡觉动画，其余时刻沿用交互情绪 */
   const effectiveMood: Mood = isSleeping ? 'sleeping' : mood
+
+  const weatherClass = weather.connected && weather.condition !== 'unknown'
+    ? `weather-${weather.condition}${weather.tempC !== null && weather.tempC < 10 ? ' weather-cold' : ''}`
+    : ''
 
   const showBubble = useCallback((message: string, nextMood: Mood = 'happy', duration = 2800) => {
     if (bubbleTimer.current) window.clearTimeout(bubbleTimer.current)
@@ -375,6 +421,75 @@ export function App(): React.JSX.Element {
   useEffect(() => {
     setSchedulePhase(computeSchedulePhase(now, settings))
   }, [now, settings.scheduleEnabled, settings.sleepStart, settings.sleepEnd, settings.mealTimesEnabled])
+
+  // 天气轮询：主进程每 60 分钟拉取，渲染层 10 分钟同步一次缓存
+  useEffect(() => {
+    let disposed = false
+    const loadWeather = async (): Promise<void> => {
+      try {
+        const data = await petBridge.getWeather()
+        if (!disposed) setWeather(data)
+      } catch {
+        // 天气是氛围层，失败静默
+      }
+    }
+    void loadWeather()
+    const timer = window.setInterval(() => { void loadWeather() }, 10 * 60_000)
+    return () => {
+      disposed = true
+      window.clearInterval(timer)
+    }
+  }, [])
+
+  // 天气台词：新天气出现时播一次；降温提醒一次
+  useEffect(() => {
+    if (weather.connected && weather.condition !== 'unknown') {
+      if (weather.condition !== lastWeatherCondition.current && !isSleeping && mode === 'pet') {
+        showBubble(WEATHER_LINES[weather.condition])
+      }
+      lastWeatherCondition.current = weather.condition
+      if (
+        weather.tempC !== null
+        && lastWeatherTemp.current !== null
+        && weather.tempC < 10
+        && lastWeatherTemp.current >= 10
+        && !isSleeping
+        && mode === 'pet'
+      ) {
+        showBubble(COLD_WEATHER_LINE)
+      }
+      if (weather.tempC !== null) lastWeatherTemp.current = weather.tempC
+    }
+  }, [weather, isSleeping, mode, showBubble])
+
+  // 羁绊：加载数据，首次进入时触发新里程碑台词
+  useEffect(() => {
+    let disposed = false
+    const loadBond = async (): Promise<void> => {
+      try {
+        const data = await petBridge.getBond()
+        if (disposed) return
+        setBond(data)
+        const focusHours = data.totalFocusSeconds / 3600
+        const freshMilestones = MILESTONES.filter(
+          (milestone) => milestone.reached(data.days, focusHours) && !data.milestonesSeen.includes(milestone.id)
+        )
+        if (freshMilestones.length > 0) {
+          const updated = await petBridge.markMilestones(freshMilestones.map((milestone) => milestone.id))
+          if (!disposed) setBond(updated)
+          window.setTimeout(() => {
+            if (!disposed && freshMilestones[0]) showBubble(freshMilestones[0].line, 'celebrating', 4200)
+          }, 1600)
+        }
+      } catch {
+        // 羁绊是记录层，失败静默
+      }
+    }
+    void loadBond()
+    return () => {
+      disposed = true
+    }
+  }, [showBubble])
 
   useEffect(() => {
     const today = new Date().toISOString().slice(0, 10)
@@ -722,6 +837,7 @@ export function App(): React.JSX.Element {
         isBlinking={isBlinking}
         idleAccent={idleAccent}
         isSleeping={isSleeping}
+        weatherClass={weatherClass}
         personaState={visiblePersonaState}
         petGender={settings.petGender}
         onClick={handlePetClick}
@@ -759,10 +875,11 @@ export function App(): React.JSX.Element {
                 onCelebrate={() => {
                   showBubble('完成啦！你把这一片海域照亮了。', 'celebrating', 4300)
                   playChime(settings.soundEnabled, true)
+                  void petBridge.recordFocus(25).then(setBond).catch(() => undefined)
                 }}
               />
             )}
-            {mode === 'settings' && <SettingsPanel settings={settings} onSettingsChange={setSettings} />}
+            {mode === 'settings' && <SettingsPanel settings={settings} bond={bond} onSettingsChange={setSettings} />}
           </div>
 
           <nav className="panel-nav" aria-label="功能切换">
@@ -794,6 +911,7 @@ interface PetStageProps {
   isBlinking: boolean
   idleAccent: IdleAccent
   isSleeping: boolean
+  weatherClass: string
   personaState: PersonaState
   petGender: PetGender
   onClick: (event: ReactMouseEvent<HTMLDivElement>) => void
@@ -817,7 +935,7 @@ function PetStage(props: PetStageProps): React.JSX.Element {
 
   return (
     <section
-      className={`pet-stage ${props.mood === 'dragging' ? 'is-dragging' : ''} ${props.isSleeping ? 'is-night' : ''}`}
+      className={`pet-stage ${props.mood === 'dragging' ? 'is-dragging' : ''} ${props.isSleeping ? 'is-night' : ''} ${props.weatherClass}`}
       style={stageStyle}
       aria-label="深海鲸灵桌宠"
     >
@@ -1115,10 +1233,11 @@ function FocusPanel({ onCelebrate }: FocusPanelProps): React.JSX.Element {
 
 interface SettingsPanelProps {
   settings: AppSettings
+  bond: BondData | null
   onSettingsChange: (settings: AppSettings) => void
 }
 
-function SettingsPanel({ settings, onSettingsChange }: SettingsPanelProps): React.JSX.Element {
+function SettingsPanel({ settings, bond, onSettingsChange }: SettingsPanelProps): React.JSX.Element {
   const [draft, setDraft] = useState(settings)
   const [scalePercent, setScalePercent] = useState(String(Math.round(settings.scale * 100)))
   const [apiKey, setApiKey] = useState('')
@@ -1160,7 +1279,9 @@ function SettingsPanel({ settings, onSettingsChange }: SettingsPanelProps): Reac
       sleepStart: draft.sleepStart,
       sleepEnd: draft.sleepEnd,
       awakeGraceMinutes: draft.awakeGraceMinutes,
-      mealTimesEnabled: draft.mealTimesEnabled
+      mealTimesEnabled: draft.mealTimesEnabled,
+      weatherEnabled: draft.weatherEnabled,
+      weatherLocation: draft.weatherLocation
     }
     if (apiKey.trim()) patch.apiKey = apiKey
     try {
@@ -1315,6 +1436,28 @@ function SettingsPanel({ settings, onSettingsChange }: SettingsPanelProps): Reac
             onChange={(value) => setDraft({ ...draft, mealTimesEnabled: value })}
           />
         </section>
+
+        <section className="setting-section">
+          <div className="section-title"><span>05</span><div><h2>天气感知</h2><p>外面的天气，它也想知道。</p></div></div>
+          <Toggle
+            label="跟随天气"
+            description="下雨阴沉、晴天晒尾巴"
+            checked={draft.weatherEnabled}
+            onChange={(value) => setDraft({ ...draft, weatherEnabled: value })}
+          />
+          <div className={`schedule-fields ${draft.weatherEnabled ? '' : 'is-standby'}`}>
+            <label>
+              <span>城市名或坐标</span>
+              <input
+                value={draft.weatherLocation}
+                onChange={(event) => setDraft({ ...draft, weatherLocation: event.target.value })}
+                placeholder="如 Qinhuangdao 或 39.93,119.60"
+                spellCheck={false}
+              />
+            </label>
+            <p className="security-note">天气来自 Open-Meteo 免费接口，需要网络；获取失败会自动静默，不影响桌宠。</p>
+          </div>
+        </section>
       </div>
 
       <div className="settings-column model-settings">
@@ -1372,6 +1515,27 @@ function SettingsPanel({ settings, onSettingsChange }: SettingsPanelProps): Reac
             </p>
             {settings.hasApiKey && <button className="text-button danger" onClick={() => void clearKey()}>移除已保存的 Key</button>}
           </div>
+        </section>
+
+        <section className="setting-section">
+          <div className="section-title"><span>06</span><div><h2>羁绊档案</h2><p>陪伴有迹可循。</p></div></div>
+          <div className="bond-stats">
+            <div className="bond-stat"><strong>{bond?.days ?? 1}</strong><span>陪伴天数</span></div>
+            <div className="bond-stat"><strong>{formatBondDuration(bond?.totalFocusSeconds ?? 0)}</strong><span>累计专注</span></div>
+          </div>
+          <ul className="milestone-list">
+            {MILESTONES.map((milestone) => {
+              const focusHours = (bond?.totalFocusSeconds ?? 0) / 3600
+              const unlocked = milestone.reached(bond?.days ?? 1, focusHours)
+              return (
+                <li key={milestone.id} className={unlocked ? 'unlocked' : ''}>
+                  <b>{milestone.label}</b>
+                  <span>{milestone.hint}</span>
+                  <i aria-hidden="true">{unlocked ? '✓' : ''}</i>
+                </li>
+              )
+            })}
+          </ul>
         </section>
       </div>
 

@@ -1,11 +1,13 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import type {
   AppSettings,
+  BondData,
   ChatMessage,
   ChatResult,
   PetAction,
   PetBridge,
   SettingsPatch,
+  WeatherData,
   WindowMode
 } from '../shared/types'
 
@@ -26,6 +28,12 @@ const bridge: PetBridge = {
   quitApp: (): void => ipcRenderer.send('pet:quit'),
   sendChat: (messages: ChatMessage[]): Promise<ChatResult> =>
     ipcRenderer.invoke('chat:send', messages),
+  getWeather: (): Promise<WeatherData> => ipcRenderer.invoke('weather:get'),
+  getBond: (): Promise<BondData> => ipcRenderer.invoke('bond:get'),
+  recordFocus: (minutes: number): Promise<BondData> =>
+    ipcRenderer.invoke('bond:record-focus', minutes),
+  markMilestones: (ids: number[]): Promise<BondData> =>
+    ipcRenderer.invoke('bond:mark-milestones', ids),
   onAction: (callback: (action: PetAction) => void): (() => void) => {
     const listener = (_event: Electron.IpcRendererEvent, action: PetAction): void => callback(action)
     ipcRenderer.on('pet:action', listener)

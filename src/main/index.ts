@@ -15,6 +15,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import type {
   AppSettings,
+  BondData,
   ChatMode,
   ChatMessage,
   ChatResult,
@@ -22,12 +23,15 @@ import type {
   PetGender,
   PetScale,
   SettingsPatch,
+  WeatherData,
   WindowMode
 } from '../shared/types'
 
 interface StoredSettings extends Omit<AppSettings, 'hasApiKey'> {
   apiKeyEncrypted?: string
   windowPosition?: { x: number; y: number }
+  weather?: WeatherData
+  bond?: BondData
 }
 
 const DEFAULT_SETTINGS: StoredSettings = {
@@ -43,7 +47,37 @@ const DEFAULT_SETTINGS: StoredSettings = {
   sleepStart: '21:00',
   sleepEnd: '08:00',
   awakeGraceMinutes: 15,
-  mealTimesEnabled: true
+  mealTimesEnabled: true,
+  weatherEnabled: false,
+  weatherLocation: ''
+}
+
+const WEATHER_REFRESH_INTERVAL_MS = 60 * 60 * 1000
+
+function todayISO(): string {
+  return new Date().toISOString().slice(0, 10)
+}
+
+function freshBond(): BondData {
+  const today = todayISO()
+  return { firstSeen: today, lastSeen: today, days: 1, totalFocusSeconds: 0, milestonesSeen: [] }
+}
+
+function idleWeather(): WeatherData {
+  return { connected: false, condition: 'unknown', tempC: null, updatedAt: null }
+}
+
+/** Open-Meteo WMO 天气代码 → 桌宠天气类别 */
+function mapWeatherCode(code: number): WeatherData['condition'] {
+  if (code === 0) return 'clear'
+  if (code >= 1 && code <= 3) return 'clouds'
+  if (code >= 45 && code <= 48) return 'clouds'
+  if (code >= 51 && code <= 67) return 'rain'
+  if (code >= 71 && code <= 77) return 'snow'
+  if (code >= 80 && code <= 82) return 'rain'
+  if (code >= 85 && code <= 86) return 'snow'
+  if (code >= 95 && code <= 99) return 'thunder'
+  return 'unknown'
 }
 
 const WINDOW_SIZES: Record<WindowMode, { width: number; height: number }> = {
@@ -133,8 +167,56 @@ class SettingsStore {
       sleepStart: this.data.sleepStart,
       sleepEnd: this.data.sleepEnd,
       awakeGraceMinutes: this.data.awakeGraceMinutes,
-      mealTimesEnabled: this.data.mealTimesEnabled
+      mealTimesEnabled: this.data.mealTimesEnabled,
+      weatherEnabled: this.data.weatherEnabled,
+      weatherLocation: this.data.weatherLocation
     }
+  }
+
+  getWeather(): WeatherData {
+    return this.data.weather ?? idleWeather()
+  }
+
+  setWeather(data: WeatherData): void {
+    this.data.weather = data
+    this.save()
+  }
+
+  /** 返回羁绊数据，跨天时自动累计陪伴天数 */
+  getBond(): BondData {
+    if (!this.data.bond) {
+      this.data.bond = freshBond()
+      this.save()
+      return this.data.bond
+    }
+    const today = todayISO()
+    if (this.data.bond.lastSeen !== today) {
+      this.data.bond = {
+        ...this.data.bond,
+        lastSeen: today,
+        days: this.data.bond.days + 1
+      }
+      this.save()
+    }
+    return this.data.bond
+  }
+
+  recordFocus(minutes: number): BondData {
+    const bond = this.getBond()
+    this.data.bond = {
+      ...bond,
+      totalFocusSeconds: bond.totalFocusSeconds + Math.round(minutes) * 60
+    }
+    this.save()
+    return this.data.bond
+  }
+
+  markMilestones(ids: number[]): BondData {
+    const bond = this.getBond()
+    const merged = [...new Set([...bond.milestonesSeen, ...ids])]
+    this.data.bond = { ...bond, milestonesSeen: merged }
+    this.save()
+    return this.data.bond
   }
 
   getWindowPosition(): { x: number; y: number } | undefined {
@@ -194,6 +276,9 @@ class SettingsStore {
       this.data.awakeGraceMinutes = Math.round(patch.awakeGraceMinutes)
     }
 
+    if (typeof patch.weatherEnabled === 'boolean') this.data.weatherEnabled = patch.weatherEnabled
+    if (typeof patch.weatherLocation === 'string') this.data.weatherLocation = patch.weatherLocation.trim().slice(0, 120)
+
     if (patch.clearApiKey) delete this.data.apiKeyEncrypted
 
     if (typeof patch.apiKey === 'string' && patch.apiKey.trim()) {
@@ -215,6 +300,51 @@ class SettingsStore {
     } catch {
       return undefined
     }
+  }
+}
+
+async function resolveCoordinates(
+  location: string,
+  signal: AbortSignal
+): Promise<{ lat: number; lon: number }> {
+  const trimmed = location.trim()
+  const coords = /^(-?\d{1,3}(?:\.\d+)?),\s*(-?\d{1,3}(?:\.\d+)?)$/.exec(trimmed)
+  if (coords) return { lat: Number(coords[1]), lon: Number(coords[2]) }
+  const geoUrl = `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(trimmed)}&count=1&language=zh`
+  const response = await fetch(geoUrl, { signal })
+  if (!response.ok) throw new Error('地理编码失败。')
+  const result = await response.json() as { results?: Array<{ latitude: number; longitude: number }> }
+  const first = result.results?.[0]
+  if (!first) throw new Error('没有找到该城市。')
+  return { lat: first.latitude, lon: first.longitude }
+}
+
+/** 拉取天气并写入设置；失败时写入未连接状态（静默降级） */
+async function refreshWeather(): Promise<void> {
+  const settings = settingsStore.getPublic()
+  if (!settings.weatherEnabled || !settings.weatherLocation.trim()) return
+  const controller = new AbortController()
+  const timeout = setTimeout(() => controller.abort(), 20_000)
+  try {
+    const { lat, lon } = await resolveCoordinates(settings.weatherLocation, controller.signal)
+    const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current_weather=true&timezone=auto`
+    const response = await fetch(url, { signal: controller.signal })
+    if (!response.ok) throw new Error('天气服务返回异常。')
+    const result = await response.json() as {
+      current_weather?: { temperature?: number; weathercode?: number }
+    }
+    const current = result.current_weather
+    if (!current || current.weathercode === undefined) throw new Error('没有当前天气数据。')
+    settingsStore.setWeather({
+      connected: true,
+      condition: mapWeatherCode(current.weathercode),
+      tempC: typeof current.temperature === 'number' ? current.temperature : null,
+      updatedAt: Date.now()
+    })
+  } catch {
+    settingsStore.setWeather(idleWeather())
+  } finally {
+    clearTimeout(timeout)
   }
 }
 
@@ -469,7 +599,38 @@ function registerIpc(): void {
       app.setLoginItemSettings({ openAtLogin: updated.launchAtLogin })
     }
     if (previous.scale !== updated.scale && currentMode === 'pet') setWindowMode('pet')
+    if (previous.weatherEnabled !== updated.weatherEnabled
+      || previous.weatherLocation !== updated.weatherLocation) {
+      void refreshWeather()
+    }
     return updated
+  })
+
+  ipcMain.handle('weather:get', (event) => {
+    ensureTrustedInvoke(event)
+    return settingsStore.getWeather()
+  })
+
+  ipcMain.handle('bond:get', (event) => {
+    ensureTrustedInvoke(event)
+    return settingsStore.getBond()
+  })
+
+  ipcMain.handle('bond:record-focus', (event, rawMinutes: unknown) => {
+    ensureTrustedInvoke(event)
+    if (typeof rawMinutes !== 'number' || !Number.isFinite(rawMinutes) || rawMinutes <= 0 || rawMinutes > 600) {
+      throw new Error('专注时长无效。')
+    }
+    return settingsStore.recordFocus(rawMinutes)
+  })
+
+  ipcMain.handle('bond:mark-milestones', (event, rawIds: unknown) => {
+    ensureTrustedInvoke(event)
+    if (!Array.isArray(rawIds)) throw new Error('里程碑数据无效。')
+    const ids = rawIds
+      .filter((id): id is number => typeof id === 'number' && Number.isFinite(id))
+      .slice(0, 50)
+    return settingsStore.markMilestones(ids)
   })
 
   ipcMain.handle('window:set-mode', (event, rawMode: unknown) => {
@@ -593,6 +754,8 @@ if (!app.requestSingleInstanceLock()) {
     registerIpc()
     createPetWindow()
     createTray()
+    void refreshWeather()
+    setInterval(() => { void refreshWeather() }, WEATHER_REFRESH_INTERVAL_MS)
 
     screen.on('display-removed', () => {
       if (petWindow) petWindow.setBounds(clampBounds(petWindow.getBounds()))

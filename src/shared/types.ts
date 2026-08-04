@@ -24,6 +24,10 @@ export interface AppSettings {
   awakeGraceMinutes: number
   /** 饭点提醒开关 */
   mealTimesEnabled: boolean
+  /** 天气感知开关 */
+  weatherEnabled: boolean
+  /** 天气城市名或 纬度,经度，留空则不定位 */
+  weatherLocation: string
 }
 
 export interface SettingsPatch {
@@ -42,6 +46,30 @@ export interface SettingsPatch {
   sleepEnd?: string
   awakeGraceMinutes?: number
   mealTimesEnabled?: boolean
+  weatherEnabled?: boolean
+  weatherLocation?: string
+}
+
+/** 天气数据（主进程拉取并缓存） */
+export interface WeatherData {
+  connected: boolean
+  condition: 'clear' | 'clouds' | 'rain' | 'snow' | 'thunder' | 'unknown'
+  tempC: number | null
+  updatedAt: number | null
+}
+
+/** 羁绊养成数据（主进程持久化） */
+export interface BondData {
+  /** 首次启动日期 YYYY-MM-DD */
+  firstSeen: string
+  /** 最近一次启动日期 YYYY-MM-DD */
+  lastSeen: string
+  /** 累计出现过桌宠的天数 */
+  days: number
+  /** 累计专注秒数 */
+  totalFocusSeconds: number
+  /** 已弹过台词/已解锁的里程碑 id */
+  milestonesSeen: number[]
 }
 
 export interface ChatMessage {
@@ -63,5 +91,9 @@ export interface PetBridge {
   hideWindow: () => void
   quitApp: () => void
   sendChat: (messages: ChatMessage[]) => Promise<ChatResult>
+  getWeather: () => Promise<WeatherData>
+  getBond: () => Promise<BondData>
+  recordFocus: (minutes: number) => Promise<BondData>
+  markMilestones: (ids: number[]) => Promise<BondData>
   onAction: (callback: (action: PetAction) => void) => () => void
 }

@@ -583,6 +583,30 @@ textarea:focus-visible,
   animation: sleep-z 1.8s ease-out infinite;
 }
 
+/* 天气氛围滤镜（声明在 is-night 之前，睡眠时夜晚滤镜优先） */
+.pet-stage.weather-clear .pet-character {
+  filter: brightness(1.08) saturate(1.05) drop-shadow(0 0 14px rgba(255, 214, 120, 0.35));
+}
+
+.pet-stage.weather-clouds .pet-character {
+  filter: brightness(0.94) saturate(0.88);
+}
+
+.pet-stage.weather-cold .pet-character {
+  filter: brightness(0.92) saturate(0.9) hue-rotate(12deg);
+}
+
+.pet-stage.weather-thunder .pet-character {
+  animation: thunder-flash 5.2s ease-in-out infinite;
+}
+
+@keyframes thunder-flash {
+  0%, 90%, 94%, 100% { filter: brightness(0.9) saturate(0.85); }
+  91% { filter: brightness(1.7) sepia(0.25); }
+  92% { filter: brightness(0.95); }
+  93% { filter: brightness(1.5) sepia(0.25); }
+}
+
 /* 夜晚睡眠氛围 */
 .pet-stage.is-night .pet-character {
   filter: brightness(0.7) saturate(0.82) drop-shadow(0 0 18px rgba(80, 140, 255, 0.35));
@@ -600,6 +624,44 @@ textarea:focus-visible,
 .pet-stage.is-night .speech-bubble {
   border-color: rgba(120, 180, 255, 0.4);
   background: rgba(5, 16, 36, 0.88);
+}
+
+/* 天气粒子层（前景，不挡交互） */
+.pet-stage.weather-rain::after,
+.pet-stage.weather-snow::after {
+  content: '';
+  position: absolute;
+  inset: -25%;
+  z-index: 4;
+  pointer-events: none;
+  animation: weather-fall linear infinite;
+}
+
+.pet-stage.weather-rain::after {
+  --fall-shift: 64px;
+  background-image:
+    linear-gradient(rgba(150, 205, 255, 0.32) 0 1.5px, transparent 1.5px 8px),
+    linear-gradient(rgba(150, 205, 255, 0.22) 0 1.5px, transparent 1.5px 6px);
+  background-size: 64px 64px, 44px 44px;
+  background-position: 0 0, 18px 12px;
+  transform: rotate(14deg);
+  animation-duration: 0.8s;
+}
+
+.pet-stage.weather-snow::after {
+  --fall-shift: 52px;
+  background-image:
+    radial-gradient(circle, rgba(240, 250, 255, 0.85) 1.5px, transparent 2px),
+    radial-gradient(circle, rgba(240, 250, 255, 0.55) 1px, transparent 1.6px);
+  background-size: 52px 52px, 38px 38px;
+  background-position: 0 0, 24px 16px;
+  animation-duration: 4.5s;
+}
+
+@keyframes weather-fall {
+  to {
+    background-position: 0 var(--fall-shift), 18px calc(var(--fall-shift) - 8px);
+  }
 }
 
 .celebrate-spark {
@@ -1795,6 +1857,74 @@ textarea:focus-visible,
   background-position: calc(100% - 14px) 50%, calc(100% - 9px) 50%;
   background-size: 5px 5px;
   background-repeat: no-repeat;
+}
+
+/* 羁绊档案 */
+.bond-stats {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.bond-stat {
+  padding: 10px 8px;
+  border: 1px solid rgba(105, 214, 242, 0.12);
+  border-radius: 10px;
+  background: rgba(4, 20, 33, 0.4);
+  text-align: center;
+}
+
+.bond-stat strong {
+  display: block;
+  color: rgba(235, 252, 255, 0.92);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.bond-stat span {
+  color: rgba(184, 222, 231, 0.5);
+  font-size: 7px;
+}
+
+.milestone-list {
+  margin: 12px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.milestone-list li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 8px;
+  border-bottom: 1px solid rgba(105, 214, 242, 0.08);
+  color: rgba(184, 222, 231, 0.42);
+  font-size: 8px;
+}
+
+.milestone-list li b {
+  min-width: 72px;
+  color: rgba(184, 222, 231, 0.6);
+  font-size: 9px;
+  font-weight: 600;
+}
+
+.milestone-list li span {
+  flex: 1;
+}
+
+.milestone-list li i {
+  color: rgba(121, 241, 166, 0.9);
+  font-style: normal;
+}
+
+.milestone-list li.unlocked b {
+  color: rgba(121, 241, 166, 0.85);
+}
+
+.milestone-list li.unlocked span {
+  color: rgba(184, 222, 231, 0.7);
 }
 
 .api-section label {
