@@ -38,7 +38,12 @@ const DEFAULT_SETTINGS: StoredSettings = {
   petGender: 'female',
   chatMode: 'local',
   apiBaseUrl: '',
-  model: ''
+  model: '',
+  scheduleEnabled: true,
+  sleepStart: '21:00',
+  sleepEnd: '08:00',
+  awakeGraceMinutes: 15,
+  mealTimesEnabled: true
 }
 
 const WINDOW_SIZES: Record<WindowMode, { width: number; height: number }> = {
@@ -90,6 +95,18 @@ class SettingsStore {
         shouldSaveMigration = true
       }
       if (!isFinitePosition(this.data.windowPosition)) delete this.data.windowPosition
+      if (!isValidClockTime(this.data.sleepStart)) {
+        this.data.sleepStart = DEFAULT_SETTINGS.sleepStart
+        shouldSaveMigration = true
+      }
+      if (!isValidClockTime(this.data.sleepEnd)) {
+        this.data.sleepEnd = DEFAULT_SETTINGS.sleepEnd
+        shouldSaveMigration = true
+      }
+      if (!Number.isFinite(this.data.awakeGraceMinutes) || this.data.awakeGraceMinutes < 5 || this.data.awakeGraceMinutes > 120) {
+        this.data.awakeGraceMinutes = DEFAULT_SETTINGS.awakeGraceMinutes
+        shouldSaveMigration = true
+      }
       if (shouldSaveMigration) this.save()
     } catch {
       this.data = { ...DEFAULT_SETTINGS }
@@ -111,7 +128,12 @@ class SettingsStore {
       chatMode: this.data.chatMode,
       apiBaseUrl: this.data.apiBaseUrl,
       model: this.data.model,
-      hasApiKey: Boolean(this.data.apiKeyEncrypted)
+      hasApiKey: Boolean(this.data.apiKeyEncrypted),
+      scheduleEnabled: this.data.scheduleEnabled,
+      sleepStart: this.data.sleepStart,
+      sleepEnd: this.data.sleepEnd,
+      awakeGraceMinutes: this.data.awakeGraceMinutes,
+      mealTimesEnabled: this.data.mealTimesEnabled
     }
   }
 
@@ -152,6 +174,26 @@ class SettingsStore {
       this.data.model = patch.model.trim().slice(0, 120)
     }
 
+    if (typeof patch.scheduleEnabled === 'boolean') this.data.scheduleEnabled = patch.scheduleEnabled
+    if (typeof patch.mealTimesEnabled === 'boolean') this.data.mealTimesEnabled = patch.mealTimesEnabled
+
+    if (typeof patch.sleepStart === 'string') {
+      if (!isValidClockTime(patch.sleepStart)) throw new Error('入睡时间格式应为 HH:MM。')
+      this.data.sleepStart = patch.sleepStart
+    }
+
+    if (typeof patch.sleepEnd === 'string') {
+      if (!isValidClockTime(patch.sleepEnd)) throw new Error('起床时间格式应为 HH:MM。')
+      this.data.sleepEnd = patch.sleepEnd
+    }
+
+    if (patch.awakeGraceMinutes !== undefined) {
+      if (!Number.isFinite(patch.awakeGraceMinutes) || patch.awakeGraceMinutes < 5 || patch.awakeGraceMinutes > 120) {
+        throw new Error('唤醒豁免时长应在 5 到 120 分钟之间。')
+      }
+      this.data.awakeGraceMinutes = Math.round(patch.awakeGraceMinutes)
+    }
+
     if (patch.clearApiKey) delete this.data.apiKeyEncrypted
 
     if (typeof patch.apiKey === 'string' && patch.apiKey.trim()) {
@@ -189,6 +231,15 @@ function isValidPetScale(value: unknown): value is PetScale {
 
 function normalizePetScale(value: PetScale): PetScale {
   return Math.round(value * 100) / 100
+}
+
+function isValidClockTime(value: unknown): value is string {
+  if (typeof value !== 'string') return false
+  const match = /^(\d{1,2}):(\d{2})$/.exec(value)
+  if (!match) return false
+  const hours = Number(match[1])
+  const minutes = Number(match[2])
+  return hours >= 0 && hours <= 23 && minutes >= 0 && minutes <= 59
 }
 
 function validateBaseUrl(rawValue: string): string {

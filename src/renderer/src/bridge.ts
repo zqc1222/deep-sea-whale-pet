@@ -16,7 +16,12 @@ const defaults: AppSettings = {
   chatMode: 'local',
   apiBaseUrl: '',
   model: '',
-  hasApiKey: false
+  hasApiKey: false,
+  scheduleEnabled: true,
+  sleepStart: '21:00',
+  sleepEnd: '08:00',
+  awakeGraceMinutes: 15,
+  mealTimesEnabled: true
 }
 
 function loadDemoSettings(): AppSettings {

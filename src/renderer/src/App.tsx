@@ -117,7 +117,12 @@ const DEFAULT_SETTINGS: AppSettings = {
   chatMode: 'local',
   apiBaseUrl: '',
   model: '',
-  hasApiKey: false
+  hasApiKey: false,
+  scheduleEnabled: true,
+  sleepStart: '21:00',
+  sleepEnd: '08:00',
+  awakeGraceMinutes: 15,
+  mealTimesEnabled: true
 }
 
 const BUBBLES = [
@@ -128,6 +133,33 @@ const BUBBLES = [
   '有难题就双击我，我们慢慢拆开。',
   '检测到一点点疲惫，休息不是掉线。'
 ]
+
+type SchedulePhase = 'day' | 'morning' | 'meal' | 'sleep'
+
+const SLEEP_ENTER_LINES = [
+  'Zzz… 我在深海的梦里值班。',
+  '晚风正好，明天的事明天再说。',
+  '呼……今晚的海面很安静，晚安。'
+]
+
+const WAKE_LINES = [
+  '…呼？嗯！醒了醒了。',
+  '唔…谁在叫我？我醒啦。',
+  '哈啊——收到，深海频道待命。'
+]
+
+const RE_SLEEP_LINES = [
+  '哈啊……那再眯一会儿。',
+  '好困……先睡啦，有事轻轻点我。'
+]
+
+/** 饭点窗口（分钟数）：11:30–13:30、17:30–19:00 */
+const MEAL_WINDOWS: ReadonlyArray<readonly [number, number]> = [
+  [690, 810],
+  [1050, 1140]
+]
+
+const AWAKE_UNTIL_KEY = 'deepsea-whale-pet:awake-until'
 
 function initialChatMessages(settings: AppSettings): UiMessage[] {
   const apiConfigured = settings.hasApiKey && Boolean(settings.apiBaseUrl && settings.model)
@@ -145,6 +177,54 @@ function uid(): string {
 
 function randomBetween(minimum: number, maximum: number): number {
   return Math.round(minimum + Math.random() * (maximum - minimum))
+}
+
+function randomLine(lines: readonly string[]): string {
+  return lines[Math.floor(Math.random() * lines.length)] ?? lines[0]!
+}
+
+function toMinutes(value: string): number {
+  const [hours = 0, minutes = 0] = value.split(':').map(Number)
+  return hours * 60 + minutes
+}
+
+function computeSchedulePhase(date: Date, settings: AppSettings): SchedulePhase {
+  const minutes = date.getHours() * 60 + date.getMinutes()
+  const sleepStart = toMinutes(settings.sleepStart)
+  const sleepEnd = toMinutes(settings.sleepEnd)
+  const inSleep = sleepStart > sleepEnd
+    ? minutes >= sleepStart || minutes < sleepEnd
+    : minutes >= sleepStart && minutes < sleepEnd
+  if (inSleep) return 'sleep'
+  if (settings.mealTimesEnabled && MEAL_WINDOWS.some(([start, end]) => minutes >= start && minutes < end)) {
+    return 'meal'
+  }
+  if (minutes >= sleepEnd && minutes < sleepEnd + 90) return 'morning'
+  return 'day'
+}
+
+/** 浏览器演示模式支持 ?time=HH:MM 模拟当前时间 */
+function demoTimeFromUrl(): Date | null {
+  if (isElectron) return null
+  const requested = new URLSearchParams(window.location.search).get('time')
+  if (!requested) return null
+  const match = /^(\d{1,2}):(\d{2})$/.exec(requested)
+  if (!match) return null
+  const hours = Number(match[1])
+  const minutes = Number(match[2])
+  if (hours > 23 || minutes > 59) return null
+  const date = new Date()
+  date.setHours(hours, minutes, 0, 0)
+  return date
+}
+
+function readAwakeUntil(): number {
+  try {
+    const raw = Number(localStorage.getItem(AWAKE_UNTIL_KEY))
+    return Number.isFinite(raw) ? raw : 0
+  } catch {
+    return 0
+  }
 }
 
 function formatTime(seconds: number): string {
@@ -217,6 +297,12 @@ export function App(): React.JSX.Element {
   const [idleAccent, setIdleAccent] = useState<IdleAccent>('none')
   const [personaState, setPersonaState] = useState<PersonaState>(initialPersonaState)
   const [isPageVisible, setIsPageVisible] = useState(true)
+  const demoClock = useMemo(demoTimeFromUrl, [])
+  const [now, setNow] = useState(() => demoClock ?? new Date())
+  const [schedulePhase, setSchedulePhase] = useState<SchedulePhase>(() => computeSchedulePhase(demoClock ?? new Date(), DEFAULT_SETTINGS))
+  const [awakeUntil, setAwakeUntil] = useState<number>(readAwakeUntil)
+  const wasSleeping = useRef(false)
+  const wokeManually = useRef(false)
   const bubbleTimer = useRef<number | undefined>(undefined)
   const moodTimer = useRef<number | undefined>(undefined)
   const clickTimer = useRef<number | undefined>(undefined)
@@ -237,6 +323,14 @@ export function App(): React.JSX.Element {
     : mode === 'chat'
       ? 'thinking'
       : personaState
+
+  /** 作息开启 + 处于睡眠时段 + 不在唤醒豁免期内 → 强制睡觉 */
+  const isSleeping = settings.scheduleEnabled
+    && schedulePhase === 'sleep'
+    && Date.now() >= awakeUntil
+
+  /** 睡觉时用 sleeping 情绪驱动现有睡觉动画，其余时刻沿用交互情绪 */
+  const effectiveMood: Mood = isSleeping ? 'sleeping' : mood
 
   const showBubble = useCallback((message: string, nextMood: Mood = 'happy', duration = 2800) => {
     if (bubbleTimer.current) window.clearTimeout(bubbleTimer.current)
@@ -273,6 +367,16 @@ export function App(): React.JSX.Element {
   }, [performAction])
 
   useEffect(() => {
+    if (demoClock) return undefined
+    const timer = window.setInterval(() => setNow(new Date()), 60_000)
+    return () => window.clearInterval(timer)
+  }, [demoClock])
+
+  useEffect(() => {
+    setSchedulePhase(computeSchedulePhase(now, settings))
+  }, [now, settings.scheduleEnabled, settings.sleepStart, settings.sleepEnd, settings.mealTimesEnabled])
+
+  useEffect(() => {
     const today = new Date().toISOString().slice(0, 10)
     const greetingKey = 'deepsea-whale-pet:last-greeting'
     if (localStorage.getItem(greetingKey) !== today) {
@@ -301,7 +405,8 @@ export function App(): React.JSX.Element {
     }
 
     if (
-      mood !== 'idle'
+      isSleeping
+      || mood !== 'idle'
       || personaState !== 'idle'
       || mode === 'chat'
       || mode === 'focus'
@@ -341,7 +446,7 @@ export function App(): React.JSX.Element {
       timers.forEach((timer) => window.clearTimeout(timer))
       setIsBlinking(false)
     }
-  }, [isPageVisible, mode, mood, personaState, settings.reducedMotion])
+  }, [isPageVisible, mode, mood, personaState, settings.reducedMotion, isSleeping])
 
   useEffect(() => {
     const timers = new Set<number>()
@@ -356,7 +461,8 @@ export function App(): React.JSX.Element {
     }
 
     if (
-      mood !== 'idle'
+      isSleeping
+      || mood !== 'idle'
       || personaState !== 'idle'
       || mode === 'chat'
       || mode === 'focus'
@@ -387,9 +493,11 @@ export function App(): React.JSX.Element {
       timers.forEach((timer) => window.clearTimeout(timer))
       setIdleAccent('none')
     }
-  }, [isPageVisible, mode, mood, personaState, settings.reducedMotion])
+  }, [isPageVisible, mode, mood, personaState, settings.reducedMotion, isSleeping])
 
   useEffect(() => {
+    if (isSleeping) return undefined
+
     if (mode !== 'pet' || settings.reducedMotion || !isPageVisible) {
       setPersonaState('idle')
       return undefined
@@ -415,7 +523,7 @@ export function App(): React.JSX.Element {
     }, delay)
 
     return () => window.clearTimeout(personaTimer)
-  }, [isPageVisible, mode, mood, personaState, settings.reducedMotion])
+  }, [isPageVisible, mode, mood, personaState, settings.reducedMotion, isSleeping])
 
   useEffect(() => {
     if (visiblePersonaState === 'idle') {
@@ -440,6 +548,39 @@ export function App(): React.JSX.Element {
       bubbleTimer.current = undefined
     }, 5200)
   }, [visiblePersonaState])
+
+  /** 手动唤醒：设定豁免期并持久化，本次会话内不再自动入睡 */
+  const wakeUp = useCallback((message?: string) => {
+    const until = Date.now() + settings.awakeGraceMinutes * 60_000
+    setAwakeUntil(until)
+    try {
+      localStorage.setItem(AWAKE_UNTIL_KEY, String(until))
+    } catch {
+      // 存储不可用时，豁免期仅本次会话有效
+    }
+    wokeManually.current = true
+    setPersonaState('idle')
+    if (message) showBubble(message, 'happy', 2600)
+  }, [settings.awakeGraceMinutes, showBubble])
+
+  // 睡眠驱动：进入睡眠时切到打盹形态并播报台词；面板模式下暂停强制
+  useEffect(() => {
+    if (!isSleeping || mode !== 'pet') {
+      wasSleeping.current = false
+      return undefined
+    }
+    if (!wasSleeping.current) {
+      wasSleeping.current = true
+      setPersonaState('sleepy')
+      showBubble(
+        wokeManually.current ? randomLine(RE_SLEEP_LINES) : randomLine(SLEEP_ENTER_LINES),
+        'idle',
+        3600
+      )
+      wokeManually.current = false
+    }
+    return undefined
+  }, [isSleeping, mode, showBubble])
 
   useEffect(() => {
     if (!isElectron) return undefined
@@ -471,6 +612,11 @@ export function App(): React.JSX.Element {
   }, [])
 
   const singleClick = useCallback(() => {
+    if (isSleeping) {
+      wakeUp(randomLine(WAKE_LINES))
+      playChime(settings.soundEnabled)
+      return
+    }
     const now = Date.now()
     rapidClicks.current = [...rapidClicks.current.filter((time) => now - time < 1800), now]
     if (rapidClicks.current.length >= 4) {
@@ -481,7 +627,7 @@ export function App(): React.JSX.Element {
       showBubble(message)
     }
     playChime(settings.soundEnabled)
-  }, [settings.soundEnabled, showBubble])
+  }, [settings.soundEnabled, showBubble, isSleeping, wakeUp])
 
   const handlePetClick = (event: ReactMouseEvent<HTMLDivElement>): void => {
     if (suppressClick.current) {
@@ -494,6 +640,7 @@ export function App(): React.JSX.Element {
   }
 
   const handleDoubleClick = (): void => {
+    if (isSleeping) wakeUp()
     if (clickTimer.current) window.clearTimeout(clickTimer.current)
     showBubble('频道接通。想聊点什么？', 'happy', 1800)
     void openMode('chat')
@@ -501,6 +648,7 @@ export function App(): React.JSX.Element {
 
   const handlePointerDown = (event: ReactPointerEvent<HTMLDivElement>): void => {
     if (event.button !== 0) return
+    if (isSleeping) wakeUp()
     event.currentTarget.setPointerCapture(event.pointerId)
     drag.current = {
       active: true,
@@ -542,11 +690,12 @@ export function App(): React.JSX.Element {
   }
 
   const cyclePersona = useCallback(() => {
+    if (isSleeping) wakeUp()
     const currentIndex = PERSONA_CYCLE.indexOf(personaState)
     const next = PERSONA_CYCLE[(currentIndex + 1) % PERSONA_CYCLE.length] ?? 'hungry'
     hasPlayedPersona.current = true
     setPersonaState(next)
-  }, [personaState])
+  }, [personaState, isSleeping, wakeUp])
 
   const appClasses = [
     'app-shell',
@@ -567,11 +716,12 @@ export function App(): React.JSX.Element {
     <main className={appClasses} onPointerDown={() => setContextMenu(null)}>
       <PetStage
         bubble={bubble}
-        mood={mood}
+        mood={effectiveMood}
         mode={mode}
         demoOffset={demoOffset}
         isBlinking={isBlinking}
         idleAccent={idleAccent}
+        isSleeping={isSleeping}
         personaState={visiblePersonaState}
         petGender={settings.petGender}
         onClick={handlePetClick}
@@ -643,6 +793,7 @@ interface PetStageProps {
   demoOffset: { x: number; y: number }
   isBlinking: boolean
   idleAccent: IdleAccent
+  isSleeping: boolean
   personaState: PersonaState
   petGender: PetGender
   onClick: (event: ReactMouseEvent<HTMLDivElement>) => void
@@ -666,7 +817,7 @@ function PetStage(props: PetStageProps): React.JSX.Element {
 
   return (
     <section
-      className={`pet-stage ${props.mood === 'dragging' ? 'is-dragging' : ''}`}
+      className={`pet-stage ${props.mood === 'dragging' ? 'is-dragging' : ''} ${props.isSleeping ? 'is-night' : ''}`}
       style={stageStyle}
       aria-label="深海鲸灵桌宠"
     >
@@ -990,6 +1141,10 @@ function SettingsPanel({ settings, onSettingsChange }: SettingsPanelProps): Reac
       setStatus('API 模式需要填写接口地址、模型名称和 API Key。')
       return
     }
+    if (draft.scheduleEnabled && (!draft.sleepStart || !draft.sleepEnd)) {
+      setStatus('作息开启时请填写入睡与起床时间。')
+      return
+    }
     setIsSaving(true)
     setStatus('')
     const patch: SettingsPatch = {
@@ -1000,7 +1155,12 @@ function SettingsPanel({ settings, onSettingsChange }: SettingsPanelProps): Reac
       petGender: draft.petGender,
       chatMode: draft.chatMode,
       apiBaseUrl: draft.apiBaseUrl,
-      model: draft.model
+      model: draft.model,
+      scheduleEnabled: draft.scheduleEnabled,
+      sleepStart: draft.sleepStart,
+      sleepEnd: draft.sleepEnd,
+      awakeGraceMinutes: draft.awakeGraceMinutes,
+      mealTimesEnabled: draft.mealTimesEnabled
     }
     if (apiKey.trim()) patch.apiKey = apiKey
     try {
@@ -1110,11 +1270,56 @@ function SettingsPanel({ settings, onSettingsChange }: SettingsPanelProps): Reac
             ))}
           </div>
         </section>
+
+        <section className="setting-section">
+          <div className="section-title"><span>04</span><div><h2>作息活动</h2><p>到点睡觉，点它才会醒来。</p></div></div>
+          <Toggle
+            label="按作息活动"
+            description="深夜自动入睡，单击唤醒"
+            checked={draft.scheduleEnabled}
+            onChange={(value) => setDraft({ ...draft, scheduleEnabled: value })}
+          />
+          <div className={`schedule-fields ${draft.scheduleEnabled ? '' : 'is-standby'}`}>
+            <label className="time-field">
+              <span>入睡时间</span>
+              <input
+                type="time"
+                value={draft.sleepStart}
+                onChange={(event) => setDraft({ ...draft, sleepStart: event.target.value })}
+              />
+            </label>
+            <label className="time-field">
+              <span>起床时间</span>
+              <input
+                type="time"
+                value={draft.sleepEnd}
+                onChange={(event) => setDraft({ ...draft, sleepEnd: event.target.value })}
+              />
+            </label>
+            <label className="grace-field">
+              <span>唤醒后保持清醒</span>
+              <select
+                value={String(draft.awakeGraceMinutes)}
+                onChange={(event) => setDraft({ ...draft, awakeGraceMinutes: Number(event.target.value) })}
+              >
+                {[5, 10, 15, 30, 60].map((minutes) => (
+                  <option key={minutes} value={minutes}>{minutes} 分钟</option>
+                ))}
+              </select>
+            </label>
+          </div>
+          <Toggle
+            label="饭点想吃白饭"
+            description="午晚两餐时间提示饿肚子"
+            checked={draft.mealTimesEnabled}
+            onChange={(value) => setDraft({ ...draft, mealTimesEnabled: value })}
+          />
+        </section>
       </div>
 
       <div className="settings-column model-settings">
         <section className="setting-section api-section">
-          <div className="section-title"><span>04</span><div><h2>聊天频道</h2><p>随时切换，不会清除已保存的配置。</p></div></div>
+          <div className="section-title"><span>05</span><div><h2>聊天频道</h2><p>随时切换，不会清除已保存的配置。</p></div></div>
           <div className="model-mode-selector" role="radiogroup" aria-label="聊天模式">
             <button type="button" role="radio" aria-checked={draft.chatMode === 'local'} className={draft.chatMode === 'local' ? 'active' : ''} onClick={() => setDraft({ ...draft, chatMode: 'local' })}>
               <i />

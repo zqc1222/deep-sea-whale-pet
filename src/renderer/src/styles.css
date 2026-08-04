@@ -583,6 +583,25 @@ textarea:focus-visible,
   animation: sleep-z 1.8s ease-out infinite;
 }
 
+/* 夜晚睡眠氛围 */
+.pet-stage.is-night .pet-character {
+  filter: brightness(0.7) saturate(0.82) drop-shadow(0 0 18px rgba(80, 140, 255, 0.35));
+  transition: filter 0.9s ease;
+}
+
+.pet-stage.is-night .sonar-ring {
+  opacity: 0.4;
+}
+
+.pet-stage.is-night .pet-hint {
+  opacity: 0.5;
+}
+
+.pet-stage.is-night .speech-bubble {
+  border-color: rgba(120, 180, 255, 0.4);
+  background: rgba(5, 16, 36, 0.88);
+}
+
 .celebrate-spark {
   right: 9%;
   top: 16%;
@@ -1721,6 +1740,61 @@ textarea:focus-visible,
 .api-fields.is-standby {
   opacity: 0.58;
   filter: saturate(0.72);
+}
+
+/* 作息活动字段 */
+.schedule-fields {
+  margin-top: 10px;
+  transition: opacity 180ms ease, filter 180ms ease;
+}
+
+.schedule-fields.is-standby {
+  opacity: 0.58;
+  filter: saturate(0.72);
+}
+
+.schedule-fields label {
+  display: block;
+  margin-top: 10px;
+}
+
+.schedule-fields label > span {
+  display: flex;
+  justify-content: space-between;
+  margin: 0 2px 5px;
+  color: rgba(184, 222, 231, 0.58);
+  font-size: 8px;
+}
+
+.schedule-fields input,
+.schedule-fields select {
+  width: 100%;
+  height: 34px;
+  padding: 0 10px;
+  border: 1px solid rgba(105, 214, 242, 0.12);
+  border-radius: 10px;
+  outline: 0;
+  color: rgba(235, 252, 255, 0.9);
+  background: rgba(4, 20, 33, 0.55);
+  font-family: Consolas, "Microsoft YaHei UI", monospace;
+  font-size: 9px;
+}
+
+.schedule-fields input:focus,
+.schedule-fields select:focus {
+  border-color: rgba(57, 217, 255, 0.45);
+  box-shadow: 0 0 0 3px rgba(57, 217, 255, 0.06);
+}
+
+.schedule-fields select {
+  appearance: none;
+  cursor: pointer;
+  background-image:
+    linear-gradient(45deg, transparent 50%, rgba(121, 241, 166, 0.6) 50%),
+    linear-gradient(135deg, rgba(121, 241, 166, 0.6) 50%, transparent 50%);
+  background-position: calc(100% - 14px) 50%, calc(100% - 9px) 50%;
+  background-size: 5px 5px;
+  background-repeat: no-repeat;
 }
 
 .api-section label {

@@ -72,8 +72,8 @@ npm run package
 
 当前输出：
 
-- `DeepSeaWhalePet-Setup-0.3.0-x64.exe`：可选择安装目录的 Windows 安装版
-- `DeepSeaWhalePet-Portable-0.3.0-x64.exe`：无需安装的便携版
+- `DeepSeaWhalePet-Setup-0.4.0-x64.exe`：可选择安装目录的 Windows 安装版
+- `DeepSeaWhalePet-Portable-0.4.0-x64.exe`：无需安装的便携版
 
 项目没有配置商业代码签名证书，因此 Windows SmartScreen 可能显示“未知发布者”。源码和 SHA-256 校验值都随项目提供；正式公开分发前建议购买并配置 Authenticode 代码签名证书。
 
