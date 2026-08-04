@@ -1,0 +1,63 @@
+{
+  "name": "deepsea-whale-pet",
+  "version": "0.3.0",
+  "private": true,
+  "author": "DeepSea Whale Pet Contributors",
+  "description": "原创深海鲸灵 Windows 桌宠，支持男女角色切换（非 DeepSeek 官方产品）",
+  "main": "./out/main/index.js",
+  "scripts": {
+    "dev": "electron-vite dev",
+    "demo": "vite --config vite.demo.config.ts --host 127.0.0.1",
+    "typecheck": "tsc --noEmit",
+    "build": "npm run typecheck && electron-vite build",
+    "preview": "electron-vite preview",
+    "package": "npm run build && npm run package:mirror",
+    "package:mirror": "set ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/&& set ELECTRON_BUILDER_BINARIES_MIRROR=https://npmmirror.com/mirrors/electron-builder-binaries/&& electron-builder --win nsis portable",
+    "package:direct": "npm run build && electron-builder --win nsis portable"
+  },
+  "dependencies": {
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "@vitejs/plugin-react": "^5.2.0",
+    "electron": "^43.2.0",
+    "electron-builder": "^26.15.3",
+    "electron-vite": "^5.0.0",
+    "typescript": "^7.0.2",
+    "vite": "^7.3.6"
+  },
+  "build": {
+    "appId": "com.deepsea.whalepet",
+    "productName": "深海鲸灵",
+    "asar": true,
+    "directories": {
+      "output": "dist",
+      "buildResources": "build"
+    },
+    "files": [
+      "out/**/*",
+      "package.json"
+    ],
+    "win": {
+      "icon": "build/icon.png",
+      "target": [
+        "nsis",
+        "portable"
+      ]
+    },
+    "nsis": {
+      "artifactName": "DeepSeaWhalePet-Setup-${version}-${arch}.${ext}",
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "shortcutName": "深海鲸灵"
+    },
+    "portable": {
+      "artifactName": "DeepSeaWhalePet-Portable-${version}-${arch}.${ext}"
+    }
+  }
+}
