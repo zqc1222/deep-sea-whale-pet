@@ -2016,6 +2016,45 @@ textarea:focus-visible,
   color: rgba(255, 157, 133, 0.65);
 }
 
+/* 打赏作者 */
+.reward-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  margin-top: 10px;
+  padding: 12px;
+  border: 1px solid rgba(102, 215, 245, 0.1);
+  border-radius: 14px 5px 14px 5px;
+  background: linear-gradient(135deg, rgba(11, 45, 66, 0.48), rgba(4, 22, 36, 0.56));
+  text-align: center;
+}
+
+.reward-qr {
+  width: 100%;
+  max-width: 200px;
+  border-radius: 12px 4px 12px 4px;
+  box-shadow: 0 8px 20px rgba(0, 7, 18, 0.4), 0 0 0 1px rgba(112, 226, 255, 0.14);
+}
+
+.reward-copy {
+  margin: 0;
+  color: rgba(184, 222, 231, 0.62);
+  font-size: 8px;
+  line-height: 1.7;
+}
+
+.reward-notice {
+  margin: 0;
+  padding: 7px 9px;
+  border: 1px solid rgba(255, 174, 151, 0.18);
+  border-radius: 10px 3px 10px 3px;
+  color: rgba(255, 201, 183, 0.78);
+  background: rgba(125, 55, 45, 0.1);
+  font-size: 7px;
+  line-height: 1.7;
+}
+
 .settings-footer {
   grid-column: 1 / -1;
   display: flex;

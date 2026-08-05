@@ -26,6 +26,7 @@
 - 音效、减少动画、开机启动、80% / 100% / 120% 缩放
 - Windows 系统托盘：显示/隐藏、聊天、专注、设置、退出
 - 浏览器演示模式，方便不启动 Electron 时检查界面与交互
+- 设置页新增「打赏作者」区块：展示收款码，并提示打赏完全自愿、理性消费、量力而行
 
 ## 开发运行
 
@@ -72,8 +73,8 @@ npm run package
 
 当前输出：
 
-- `DeepSeaWhalePet-Setup-0.6.0-x64.exe`：可选择安装目录的 Windows 安装版
-- `DeepSeaWhalePet-Portable-0.6.0-x64.exe`：无需安装的便携版
+- `DeepSeaWhalePet-Setup-0.7.0-x64.exe`：可选择安装目录的 Windows 安装版
+- `DeepSeaWhalePet-Portable-0.7.0-x64.exe`：无需安装的便携版
 
 项目没有配置商业代码签名证书，因此 Windows SmartScreen 可能显示“未知发布者”。源码和 SHA-256 校验值都随项目提供；正式公开分发前建议购买并配置 Authenticode 代码签名证书。
 

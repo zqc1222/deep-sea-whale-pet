@@ -30,6 +30,7 @@ import hungryWhaleBoy from '../assets/states/boy/hungry.png'
 import sleepyWhaleBoy from '../assets/states/boy/sleepy.png'
 import thinkingWhaleBoy from '../assets/states/boy/thinking.png'
 import workingWhaleBoy from '../assets/states/boy/working.png'
+import rewardQr from '../assets/reward-qr.jpg'
 import { isElectron, petBridge } from './bridge'
 import { Icon } from './Icon'
 
@@ -1871,6 +1872,15 @@ function SettingsPanel({ settings, bond, onSettingsChange }: SettingsPanelProps)
               )
             })}
           </ul>
+        </section>
+
+        <section className="setting-section reward-section">
+          <div className="section-title"><span>09</span><div><h2>打赏作者</h2><p>喜欢就请作者喝杯奶茶，一切全凭自愿。</p></div></div>
+          <div className="reward-card">
+            <img className="reward-qr" src={rewardQr} alt="打赏作者收款码" draggable={false} />
+            <p className="reward-copy">如果这只小鲸鱼曾陪你度过安静的片刻，欢迎扫一扫打赏。每一份心意，都会变成新的灵感和下一版故事。</p>
+            <p className="reward-notice">温馨提示：打赏完全自愿，请理性消费、量力而行；不打赏也完全不影响使用。</p>
+          </div>
         </section>
       </div>
 
