@@ -111,4 +111,5 @@ export interface PetBridge {
   markMilestones: (ids: number[]) => Promise<BondData>
   probeActivity: () => Promise<ActivityProbe>
   onAction: (callback: (action: PetAction) => void) => () => void
+  onWeatherUpdated: (callback: (weather: WeatherData) => void) => () => void
 }

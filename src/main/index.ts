@@ -284,7 +284,9 @@ class SettingsStore {
     }
 
     if (typeof patch.weatherEnabled === 'boolean') this.data.weatherEnabled = patch.weatherEnabled
-    if (typeof patch.weatherLocation === 'string') this.data.weatherLocation = patch.weatherLocation.trim().slice(0, 120)
+    if (typeof patch.weatherLocation === 'string') {
+      this.data.weatherLocation = patch.weatherLocation.trim().replace(/[，、;；]/g, ',').slice(0, 120)
+    }
 
     if (typeof patch.careEnabled === 'boolean') this.data.careEnabled = patch.careEnabled
 
@@ -349,16 +351,24 @@ async function resolveCoordinates(
   location: string,
   signal: AbortSignal
 ): Promise<{ lat: number; lon: number }> {
-  const trimmed = location.trim()
-  const coords = /^(-?\d{1,3}(?:\.\d+)?),\s*(-?\d{1,3}(?:\.\d+)?)$/.exec(trimmed)
+  // 全角逗号/顿号/分号 → 半角逗号，并去掉逗号两侧空白（中文输入法常打出全角逗号）
+  const normalized = location.trim()
+    .replace(/[，、;；]/g, ',')
+    .replace(/\s*,\s*/g, ',')
+  const coords = /^(-?\d{1,3}(?:\.\d+)?),\s*(-?\d{1,3}(?:\.\d+)?)$/.exec(normalized)
   if (coords) return { lat: Number(coords[1]), lon: Number(coords[2]) }
-  const geoUrl = `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(trimmed)}&count=1&language=zh`
+  const geoUrl = `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(normalized)}&count=1&language=zh`
   const response = await fetch(geoUrl, { signal })
   if (!response.ok) throw new Error('地理编码失败。')
   const result = await response.json() as { results?: Array<{ latitude: number; longitude: number }> }
   const first = result.results?.[0]
   if (!first) throw new Error('没有找到该城市。')
   return { lat: first.latitude, lon: first.longitude }
+}
+
+/** 把最新天气推送给渲染层，让保存设置后立即看到效果，不必等下一轮轮询 */
+function broadcastWeather(): void {
+  petWindow?.webContents.send('weather:updated', settingsStore.getWeather())
 }
 
 /** 拉取天气并写入设置；失败时写入未连接状态（静默降级） */
@@ -387,6 +397,7 @@ async function refreshWeather(): Promise<void> {
     settingsStore.setWeather(idleWeather())
   } finally {
     clearTimeout(timeout)
+    broadcastWeather()
   }
 }
 

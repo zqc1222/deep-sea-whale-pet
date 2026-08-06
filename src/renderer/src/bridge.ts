@@ -140,7 +140,8 @@ const demoBridge: PetBridge = {
       activeWindowTitle: windowType ? (demoWindows[windowType] ?? '') : ''
     }
   },
-  onAction: () => () => undefined
+  onAction: () => () => undefined,
+  onWeatherUpdated: () => () => undefined
 }
 
 export const isElectron = Boolean(window.petAPI)

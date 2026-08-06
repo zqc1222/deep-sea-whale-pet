@@ -40,6 +40,11 @@ const bridge: PetBridge = {
     const listener = (_event: Electron.IpcRendererEvent, action: PetAction): void => callback(action)
     ipcRenderer.on('pet:action', listener)
     return () => ipcRenderer.removeListener('pet:action', listener)
+  },
+  onWeatherUpdated: (callback: (weather: WeatherData) => void): (() => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, weather: WeatherData): void => callback(weather)
+    ipcRenderer.on('weather:updated', listener)
+    return () => ipcRenderer.removeListener('weather:updated', listener)
   }
 }
 

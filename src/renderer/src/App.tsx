@@ -169,12 +169,46 @@ const MEAL_WINDOWS: ReadonlyArray<readonly [number, number]> = [
 
 const AWAKE_UNTIL_KEY = 'deepsea-whale-pet:awake-until'
 
-const WEATHER_LINES: Record<Exclude<WeatherData['condition'], 'unknown'>, string> = {
-  clear: '阳光正好，晒晒尾巴。',
-  clouds: '云层厚厚一层，海面灰灰的。',
-  rain: '今天海面有点阴沉…记得带伞。',
-  snow: '下雪啦！深海的雪是安静的白。',
-  thunder: '轰——！尾巴都竖起来了。'
+/** 天气专属语音：每种天气多句，切换天气或天气持续期间随机冒出 */
+const WEATHER_LINES: Record<Exclude<WeatherData['condition'], 'unknown'>, readonly string[]> = {
+  clear: [
+    '阳光正好，海面亮晶晶的，晒晒尾巴。',
+    '晴天信号满格！今天适合游得远一点。',
+    '太阳把深海照得透亮，心情也跟着浮上来了。',
+    '好天气！要不要一起去晒晒背鳍？'
+  ],
+  clouds: [
+    '云层厚厚一层，海面灰灰的，有点想打盹。',
+    '多云的日子，光线软软的，像盖了层被子。',
+    '云把太阳藏起来了一会儿，正好歇歇。',
+    '阴天不急着赶路，慢慢漂就好。'
+  ],
+  rain: [
+    '今天海面有点阴沉…记得带伞。',
+    '雨点落进海里，变成一串串小气泡。',
+    '下雨天，窝在屏幕前刚刚好。',
+    '外面的雨声，和深海的安静是同一个节奏。'
+  ],
+  snow: [
+    '下雪啦！深海的雪是安静的白。',
+    '雪花落进海面，瞬间就被温柔接住。',
+    '雪天记得穿厚一点，鲸鱼也会怕冷。',
+    '白茫茫的世界，像被按下了静音键。'
+  ],
+  thunder: [
+    '轰——！尾巴都竖起来了。',
+    '雷声好近…先靠边游一游。',
+    '闪电照亮海面的一瞬间，有点帅也有点吓人。',
+    '打雷啦，躲进深海频道，外面交给天气。'
+  ]
+}
+
+const WEATHER_LABELS: Record<Exclude<WeatherData['condition'], 'unknown'>, string> = {
+  clear: '晴',
+  clouds: '多云',
+  rain: '雨',
+  snow: '雪',
+  thunder: '雷雨'
 }
 
 const COLD_WEATHER_LINE = '外面好冷，别冻着。'
@@ -444,6 +478,9 @@ export function App(): React.JSX.Element {
   const weatherClass = weather.connected && weather.condition !== 'unknown'
     ? `weather-${weather.condition}${weather.tempC !== null && weather.tempC < 10 ? ' weather-cold' : ''}`
     : ''
+  const weatherBadge = weather.connected && weather.condition !== 'unknown' && weather.tempC !== null
+    ? `${Math.round(weather.tempC)}°C · ${WEATHER_LABELS[weather.condition]}`
+    : ''
 
   const showBubble = useCallback((message: string, nextMood: Mood = 'happy', duration = 2800) => {
     if (bubbleTimer.current) window.clearTimeout(bubbleTimer.current)
@@ -489,7 +526,7 @@ export function App(): React.JSX.Element {
     setSchedulePhase(computeSchedulePhase(now, settings))
   }, [now, settings.scheduleEnabled, settings.sleepStart, settings.sleepEnd, settings.mealTimesEnabled])
 
-  // 天气轮询：主进程每 60 分钟拉取，渲染层 10 分钟同步一次缓存
+  // 天气轮询：主进程每 60 分钟拉取并推送，渲染层 10 分钟兜底同步一次缓存
   useEffect(() => {
     let disposed = false
     const loadWeather = async (): Promise<void> => {
@@ -501,18 +538,23 @@ export function App(): React.JSX.Element {
       }
     }
     void loadWeather()
+    // 主进程刷新完天气会主动推送，保存设置后立即生效，不必等轮询
+    const removeWeatherListener = petBridge.onWeatherUpdated((data) => {
+      if (!disposed) setWeather(data)
+    })
     const timer = window.setInterval(() => { void loadWeather() }, 10 * 60_000)
     return () => {
       disposed = true
       window.clearInterval(timer)
+      removeWeatherListener()
     }
   }, [])
 
-  // 天气台词：新天气出现时播一次；降温提醒一次
+  // 天气台词：新天气出现时播一次随机台词；降温提醒一次
   useEffect(() => {
     if (weather.connected && weather.condition !== 'unknown') {
       if (weather.condition !== lastWeatherCondition.current && !isSleeping && mode === 'pet') {
-        showBubble(WEATHER_LINES[weather.condition])
+        showBubble(randomLine(WEATHER_LINES[weather.condition]), 'happy', 3600)
       }
       lastWeatherCondition.current = weather.condition
       if (
@@ -528,6 +570,43 @@ export function App(): React.JSX.Element {
       if (weather.tempC !== null) lastWeatherTemp.current = weather.tempC
     }
   }, [weather, isSleeping, mode, showBubble])
+
+  // 天气专属语音：天气持续期间，隔一段随机时间冒一句该天气台词
+  useEffect(() => {
+    if (
+      !weather.connected
+      || weather.condition === 'unknown'
+      || isSleeping
+      || mode !== 'pet'
+      || !isPageVisible
+    ) {
+      return undefined
+    }
+    // 守卫后 condition 已收窄为非 unknown，捕获成常量供闭包安全索引
+    const condition = weather.condition
+    let disposed = false
+    let timer: number | undefined
+
+    const scheduleNext = (): void => {
+      // 演示模式 ?weathervoice=秒数 可加速观察
+      const demoSeconds = isElectron ? null : Number(new URLSearchParams(window.location.search).get('weathervoice'))
+      const delayMs = demoSeconds !== null && Number.isFinite(demoSeconds) && demoSeconds > 0
+        ? Math.round(demoSeconds * 1000)
+        : Math.round(360_000 + Math.random() * 420_000) // 6–13 分钟随机
+      timer = window.setTimeout(() => {
+        if (disposed) return
+        showBubble(randomLine(WEATHER_LINES[condition]), 'happy', 3600)
+        playChime(settings.soundEnabled)
+        scheduleNext()
+      }, delayMs)
+    }
+
+    scheduleNext()
+    return () => {
+      disposed = true
+      if (timer) window.clearTimeout(timer)
+    }
+  }, [weather.connected, weather.condition, isSleeping, mode, isPageVisible, showBubble, settings.soundEnabled])
 
   // 羁绊：加载数据，首次进入时触发新里程碑台词
   useEffect(() => {
@@ -942,6 +1021,7 @@ export function App(): React.JSX.Element {
         idleAccent={idleAccent}
         isSleeping={isSleeping}
         weatherClass={weatherClass}
+        weatherBadge={weatherBadge}
         reducedMotion={settings.reducedMotion}
         personaState={visiblePersonaState}
         petGender={settings.petGender}
@@ -1017,6 +1097,7 @@ interface PetStageProps {
   idleAccent: IdleAccent
   isSleeping: boolean
   weatherClass: string
+  weatherBadge: string
   reducedMotion: boolean
   personaState: PersonaState
   petGender: PetGender
@@ -1311,6 +1392,7 @@ function PetStage(props: PetStageProps): React.JSX.Element {
       </div>
 
       {props.weatherClass && <span className="weather-layer" aria-hidden="true" />}
+      {props.weatherBadge && <span className="weather-badge"><i aria-hidden="true" />{props.weatherBadge}</span>}
       {props.weatherClass.includes('rain') && <RainSystem active={!props.reducedMotion} />}
       {props.mode === 'pet' && (
         <>
