@@ -11,6 +11,7 @@ import {
 } from 'react'
 import type {
   ActivityProbe,
+  AppHashInfo,
   AppSettings,
   BondData,
   ChatMessage,
@@ -1635,6 +1636,15 @@ function SettingsPanel({ settings, bond, onSettingsChange }: SettingsPanelProps)
   const [apiKey, setApiKey] = useState('')
   const [status, setStatus] = useState('')
   const [isSaving, setIsSaving] = useState(false)
+  const [appHash, setAppHash] = useState<AppHashInfo | null>(null)
+
+  useEffect(() => {
+    let disposed = false
+    void petBridge.verifyAppHash()
+      .then((info) => { if (!disposed) setAppHash(info) })
+      .catch(() => undefined)
+    return () => { disposed = true }
+  }, [])
 
   useEffect(() => {
     setDraft(settings)
@@ -1962,6 +1972,18 @@ function SettingsPanel({ settings, bond, onSettingsChange }: SettingsPanelProps)
             <img className="reward-qr" src={rewardQr} alt="打赏作者收款码" draggable={false} />
             <p className="reward-copy">如果这只小鲸鱼曾陪你度过安静的片刻，欢迎扫一扫打赏。每一份心意，都会变成新的灵感和下一版故事。</p>
             <p className="reward-notice">温馨提示：打赏完全自愿，请理性消费、量力而行；不打赏也完全不影响使用。</p>
+            <p className="reward-warning">请从官方 GitHub Release 下载使用；打赏前请核对下方校验码，谨防山寨版偷换收款码。</p>
+            <div className="integrity-check">
+              {appHash?.packaged && appHash.hash ? (
+                <>
+                  <span>正版校验码</span>
+                  <code>{appHash.hash}</code>
+                  <small>与官方 Release 页公布的一致即为官方版本</small>
+                </>
+              ) : appHash ? (
+                <small>当前为开发版 · 校验码仅对安装版生效</small>
+              ) : null}
+            </div>
           </div>
         </section>
       </div>

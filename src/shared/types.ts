@@ -72,6 +72,14 @@ export interface WeatherData {
   updatedAt: number | null
 }
 
+/** 应用完整性校验信息：用于让用户核对安装包是否为官方版本 */
+export interface AppHashInfo {
+  /** 是否为打包安装版（开发版不适用校验） */
+  packaged: boolean
+  /** 打包版：resources/app.asar 的 SHA-256 前 12 位大写；开发版为空串 */
+  hash: string
+}
+
 /** 羁绊养成数据（主进程持久化） */
 export interface BondData {
   /** 首次启动日期 YYYY-MM-DD */
@@ -112,4 +120,5 @@ export interface PetBridge {
   probeActivity: () => Promise<ActivityProbe>
   onAction: (callback: (action: PetAction) => void) => () => void
   onWeatherUpdated: (callback: (weather: WeatherData) => void) => () => void
+  verifyAppHash: () => Promise<AppHashInfo>
 }

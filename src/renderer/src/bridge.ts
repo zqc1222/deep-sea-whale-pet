@@ -1,5 +1,6 @@
 import type {
   ActivityProbe,
+  AppHashInfo,
   AppSettings,
   BondData,
   ChatResult,
@@ -141,7 +142,8 @@ const demoBridge: PetBridge = {
     }
   },
   onAction: () => () => undefined,
-  onWeatherUpdated: () => () => undefined
+  onWeatherUpdated: () => () => undefined,
+  verifyAppHash: async (): Promise<AppHashInfo> => ({ packaged: false, hash: '' })
 }
 
 export const isElectron = Boolean(window.petAPI)

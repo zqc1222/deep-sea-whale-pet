@@ -13,10 +13,12 @@ import {
   type Rectangle
 } from 'electron'
 import { execFile } from 'node:child_process'
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { createHash } from 'node:crypto'
+import { createReadStream, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import type {
   ActivityProbe,
+  AppHashInfo,
   AppSettings,
   BondData,
   ChatMode,
@@ -635,6 +637,31 @@ function ensureTrustedEvent(event: IpcMainEvent): boolean {
   return Boolean(petWindow && event.sender === petWindow.webContents)
 }
 
+/** 应用完整性校验码：打包版对 resources/app.asar 取 SHA-256 前 12 位，供用户核对是否为官方版本 */
+let cachedAppHash: string | null = null
+
+function computeAsarHash(asarPath: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const hash = createHash('sha256')
+    const stream = createReadStream(asarPath)
+    stream.on('data', (chunk) => hash.update(chunk))
+    stream.on('end', () => resolve(hash.digest('hex').slice(0, 12).toUpperCase()))
+    stream.on('error', reject)
+  })
+}
+
+async function appIntegrityHash(): Promise<AppHashInfo> {
+  if (!app.isPackaged) return { packaged: false, hash: '' }
+  if (cachedAppHash !== null) return { packaged: true, hash: cachedAppHash }
+  try {
+    const asarPath = join(process.resourcesPath, 'app.asar')
+    cachedAppHash = existsSync(asarPath) ? await computeAsarHash(asarPath) : ''
+  } catch {
+    cachedAppHash = ''
+  }
+  return { packaged: true, hash: cachedAppHash }
+}
+
 function registerIpc(): void {
   ipcMain.handle('settings:get', (event) => {
     ensureTrustedInvoke(event)
@@ -667,6 +694,11 @@ function registerIpc(): void {
   ipcMain.handle('bond:get', (event) => {
     ensureTrustedInvoke(event)
     return settingsStore.getBond()
+  })
+
+  ipcMain.handle('app:verify-hash', (event) => {
+    ensureTrustedInvoke(event)
+    return appIntegrityHash()
   })
 
   ipcMain.handle('bond:record-focus', (event, rawMinutes: unknown) => {

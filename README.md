@@ -28,6 +28,7 @@
 - 浏览器演示模式，方便不启动 Electron 时检查界面与交互
 - 设置页新增「打赏作者」区块：展示收款码，并提示打赏完全自愿、理性消费、量力而行
 - 天气感知：右上角显示温度徽章，每种天气专属随机语音，天气持续期间也会隔段时间冒一句
+- 「打赏作者」区块含防山寨提示与正版校验码：设置页显示的校验码与官方 Release 页公布的一致即为官方版本
 
 ## 开发运行
 
@@ -74,8 +75,8 @@ npm run package
 
 当前输出：
 
-- `DeepSeaWhalePet-Setup-0.7.1-x64.exe`：可选择安装目录的 Windows 安装版
-- `DeepSeaWhalePet-Portable-0.7.1-x64.exe`：无需安装的便携版
+- `DeepSeaWhalePet-Setup-0.7.2-x64.exe`：可选择安装目录的 Windows 安装版
+- `DeepSeaWhalePet-Portable-0.7.2-x64.exe`：无需安装的便携版
 
 项目没有配置商业代码签名证书，因此 Windows SmartScreen 可能显示“未知发布者”。源码和 SHA-256 校验值都随项目提供；正式公开分发前建议购买并配置 Authenticode 代码签名证书。
 

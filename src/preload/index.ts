@@ -1,6 +1,7 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import type {
   ActivityProbe,
+  AppHashInfo,
   AppSettings,
   BondData,
   ChatMessage,
@@ -45,7 +46,8 @@ const bridge: PetBridge = {
     const listener = (_event: Electron.IpcRendererEvent, weather: WeatherData): void => callback(weather)
     ipcRenderer.on('weather:updated', listener)
     return () => ipcRenderer.removeListener('weather:updated', listener)
-  }
+  },
+  verifyAppHash: (): Promise<AppHashInfo> => ipcRenderer.invoke('app:verify-hash')
 }
 
 contextBridge.exposeInMainWorld('petAPI', bridge)
