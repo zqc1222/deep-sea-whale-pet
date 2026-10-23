@@ -72,11 +72,11 @@ export interface WeatherData {
   updatedAt: number | null
 }
 
-/** 应用完整性校验信息：用于让用户核对安装包是否为官方版本 */
+/** 应用文件辅助指纹：不认证发布者身份，不代表整个安装包的完整性 */
 export interface AppHashInfo {
-  /** 是否为打包安装版（开发版不适用校验） */
+  /** 是否为打包版本（安装版或便携版；开发模式不提供指纹） */
   packaged: boolean
-  /** 打包版：resources/app.asar 的 SHA-256 前 12 位大写；开发版为空串 */
+  /** 打包版：resources/app.asar 的 SHA-256 前 12 位大写；开发模式或读取失败时为空串 */
   hash: string
 }
 
