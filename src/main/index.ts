@@ -637,7 +637,7 @@ function ensureTrustedEvent(event: IpcMainEvent): boolean {
   return Boolean(petWindow && event.sender === petWindow.webContents)
 }
 
-/** 应用完整性校验码：打包版对 resources/app.asar 取 SHA-256 前 12 位，供用户核对是否为官方版本 */
+/** 辅助文件指纹：app.asar 的 SHA-256 前 12 位，不认证发布者身份，也不覆盖整个安装包 */
 let cachedAppHash: string | null = null
 
 function computeAsarHash(asarPath: string): Promise<string> {
