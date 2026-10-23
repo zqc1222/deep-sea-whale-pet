@@ -4,6 +4,7 @@ import type {
   AppHashInfo,
   AppSettings,
   BondData,
+  ChatHistoryMessage,
   ChatMessage,
   ChatResult,
   PetAction,
@@ -30,6 +31,11 @@ const bridge: PetBridge = {
   quitApp: (): void => ipcRenderer.send('pet:quit'),
   sendChat: (messages: ChatMessage[]): Promise<ChatResult> =>
     ipcRenderer.invoke('chat:send', messages),
+  getChatHistory: (): Promise<ChatHistoryMessage[]> => ipcRenderer.invoke('chat:history-get'),
+  saveChatHistory: (messages: ChatHistoryMessage[]): Promise<void> =>
+    ipcRenderer.invoke('chat:history-save', messages),
+  clearChatHistory: (): Promise<void> => ipcRenderer.invoke('chat:history-clear'),
+  copyText: (text: string): Promise<void> => ipcRenderer.invoke('clipboard:write-text', text),
   getWeather: (): Promise<WeatherData> => ipcRenderer.invoke('weather:get'),
   getBond: (): Promise<BondData> => ipcRenderer.invoke('bond:get'),
   recordFocus: (minutes: number): Promise<BondData> =>

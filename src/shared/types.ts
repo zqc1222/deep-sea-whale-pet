@@ -72,9 +72,9 @@ export interface WeatherData {
   updatedAt: number | null
 }
 
-/** 应用完整性校验信息：用于让用户核对安装包是否为官方版本 */
+/** 应用内容指纹信息：用于和官方 Release 公布值比对，不代表代码签名 */
 export interface AppHashInfo {
-  /** 是否为打包安装版（开发版不适用校验） */
+  /** 是否为打包版本（开发版不生成内容指纹） */
   packaged: boolean
   /** 打包版：resources/app.asar 的 SHA-256 前 12 位大写；开发版为空串 */
   hash: string
@@ -99,6 +99,10 @@ export interface ChatMessage {
   content: string
 }
 
+export interface ChatHistoryMessage extends ChatMessage {
+  id: string
+}
+
 export interface ChatResult {
   content: string
 }
@@ -113,6 +117,10 @@ export interface PetBridge {
   hideWindow: () => void
   quitApp: () => void
   sendChat: (messages: ChatMessage[]) => Promise<ChatResult>
+  getChatHistory: () => Promise<ChatHistoryMessage[]>
+  saveChatHistory: (messages: ChatHistoryMessage[]) => Promise<void>
+  clearChatHistory: () => Promise<void>
+  copyText: (text: string) => Promise<void>
   getWeather: () => Promise<WeatherData>
   getBond: () => Promise<BondData>
   recordFocus: (minutes: number) => Promise<BondData>

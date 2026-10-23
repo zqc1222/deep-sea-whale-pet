@@ -1,6 +1,7 @@
 import {
   app,
   BrowserWindow,
+  clipboard,
   ipcMain,
   Menu,
   nativeImage,
@@ -21,6 +22,7 @@ import type {
   AppHashInfo,
   AppSettings,
   BondData,
+  ChatHistoryMessage,
   ChatMode,
   ChatMessage,
   ChatResult,
@@ -37,6 +39,7 @@ interface StoredSettings extends Omit<AppSettings, 'hasApiKey'> {
   windowPosition?: { x: number; y: number }
   weather?: WeatherData
   bond?: BondData
+  chatHistory?: ChatHistoryMessage[]
 }
 
 const DEFAULT_SETTINGS: StoredSettings = {
@@ -56,10 +59,13 @@ const DEFAULT_SETTINGS: StoredSettings = {
   weatherEnabled: false,
   weatherLocation: '',
   careEnabled: true,
-  careIntervalMinutes: 90
+  careIntervalMinutes: 90,
+  chatHistory: []
 }
 
 const WEATHER_REFRESH_INTERVAL_MS = 60 * 60 * 1000
+const MAX_CHAT_HISTORY_MESSAGES = 100
+const MAX_CHAT_HISTORY_CONTENT_LENGTH = 20_000
 
 function todayISO(): string {
   return new Date().toISOString().slice(0, 10)
@@ -72,6 +78,22 @@ function freshBond(): BondData {
 
 function idleWeather(): WeatherData {
   return { connected: false, condition: 'unknown', tempC: null, updatedAt: null }
+}
+
+function sanitizeChatHistory(raw: unknown): ChatHistoryMessage[] {
+  if (!Array.isArray(raw)) return []
+  const now = Date.now()
+  return raw.slice(-MAX_CHAT_HISTORY_MESSAGES).flatMap((message, index) => {
+    if (!message || typeof message !== 'object') return []
+    const candidate = message as { id?: unknown; role?: unknown; content?: unknown }
+    if ((candidate.role !== 'user' && candidate.role !== 'assistant') || typeof candidate.content !== 'string') return []
+    const content = candidate.content.trim().slice(0, MAX_CHAT_HISTORY_CONTENT_LENGTH)
+    if (!content) return []
+    const id = typeof candidate.id === 'string' && candidate.id.trim()
+      ? candidate.id.trim().slice(0, 100)
+      : `${now}-${index}`
+    return [{ id, role: candidate.role, content }]
+  })
 }
 
 /** Open-Meteo WMO 天气代码 → 桌宠天气类别 */
@@ -104,6 +126,7 @@ let petWindow: BrowserWindow | null = null
 let tray: Tray | null = null
 let settingsStore: SettingsStore
 let isQuitting = false
+let activeWeatherController: AbortController | null = null
 let currentMode: WindowMode = 'pet'
 let persistPositionTimer: ReturnType<typeof setTimeout> | undefined
 let moveFlushTimer: ReturnType<typeof setTimeout> | undefined
@@ -122,7 +145,11 @@ class SettingsStore {
 
     try {
       const parsed = JSON.parse(readFileSync(this.filePath, 'utf8')) as Partial<StoredSettings>
-      this.data = { ...DEFAULT_SETTINGS, ...parsed }
+      this.data = {
+        ...DEFAULT_SETTINGS,
+        ...parsed,
+        chatHistory: sanitizeChatHistory(parsed.chatHistory)
+      }
       let shouldSaveMigration = false
       const normalizedScale = isValidPetScale(this.data.scale) ? normalizePetScale(this.data.scale) : 1
       if (normalizedScale !== this.data.scale) shouldSaveMigration = true
@@ -235,6 +262,20 @@ class SettingsStore {
   setWindowPosition(position: { x: number; y: number }): void {
     if (!isFinitePosition(position)) return
     this.data.windowPosition = { x: Math.round(position.x), y: Math.round(position.y) }
+    this.save()
+  }
+
+  getChatHistory(): ChatHistoryMessage[] {
+    return sanitizeChatHistory(this.data.chatHistory)
+  }
+
+  setChatHistory(messages: unknown): void {
+    this.data.chatHistory = sanitizeChatHistory(messages)
+    this.save()
+  }
+
+  clearChatHistory(): void {
+    this.data.chatHistory = []
     this.save()
   }
 
@@ -376,8 +417,15 @@ function broadcastWeather(): void {
 /** 拉取天气并写入设置；失败时写入未连接状态（静默降级） */
 async function refreshWeather(): Promise<void> {
   const settings = settingsStore.getPublic()
-  if (!settings.weatherEnabled || !settings.weatherLocation.trim()) return
+  activeWeatherController?.abort()
+  activeWeatherController = null
+  if (!settings.weatherEnabled || !settings.weatherLocation.trim()) {
+    settingsStore.setWeather(idleWeather())
+    broadcastWeather()
+    return
+  }
   const controller = new AbortController()
+  activeWeatherController = controller
   const timeout = setTimeout(() => controller.abort(), 20_000)
   try {
     const { lat, lon } = await resolveCoordinates(settings.weatherLocation, controller.signal)
@@ -389,6 +437,7 @@ async function refreshWeather(): Promise<void> {
     }
     const current = result.current_weather
     if (!current || current.weathercode === undefined) throw new Error('没有当前天气数据。')
+    if (activeWeatherController !== controller) return
     settingsStore.setWeather({
       connected: true,
       condition: mapWeatherCode(current.weathercode),
@@ -396,10 +445,13 @@ async function refreshWeather(): Promise<void> {
       updatedAt: Date.now()
     })
   } catch {
-    settingsStore.setWeather(idleWeather())
+    if (activeWeatherController === controller) settingsStore.setWeather(idleWeather())
   } finally {
     clearTimeout(timeout)
-    broadcastWeather()
+    if (activeWeatherController === controller) {
+      activeWeatherController = null
+      broadcastWeather()
+    }
   }
 }
 
@@ -481,10 +533,18 @@ function initialBounds(): Rectangle {
   return clampBounds({ ...size, ...(saved ?? fallback) })
 }
 
+/** 开发时读取 build 源图，打包后读取 electron-builder 复制到 resources 的运行时图标。 */
+function appIconPath(): string {
+  return app.isPackaged
+    ? join(process.resourcesPath, 'app-icon.png')
+    : join(app.getAppPath(), 'build', 'icon-v3.png')
+}
+
 function createPetWindow(): void {
   petWindow = new BrowserWindow({
     ...initialBounds(),
     title: '深海鲸灵',
+    icon: appIconPath(),
     transparent: true,
     backgroundColor: '#00000000',
     frame: false,
@@ -615,7 +675,9 @@ function createTray(): void {
       <circle cx="21.5" cy="16" r="1.2" fill="#eafbff"/>
     </svg>`
   const dataUrl = `data:image/svg+xml;base64,${Buffer.from(traySvg).toString('base64')}`
-  const icon = nativeImage.createFromDataURL(dataUrl).resize({ width: 16, height: 16 })
+  const sourceIcon = nativeImage.createFromPath(appIconPath())
+  const icon = (sourceIcon.isEmpty() ? nativeImage.createFromDataURL(dataUrl) : sourceIcon)
+    .resize({ width: 16, height: 16, quality: 'best' })
   tray = new Tray(icon)
   tray.setToolTip('深海鲸灵 · 非官方同人原型')
   tray.setContextMenu(Menu.buildFromTemplate([
@@ -637,7 +699,7 @@ function ensureTrustedEvent(event: IpcMainEvent): boolean {
   return Boolean(petWindow && event.sender === petWindow.webContents)
 }
 
-/** 应用完整性校验码：打包版对 resources/app.asar 取 SHA-256 前 12 位，供用户核对是否为官方版本 */
+/** 应用内容指纹：打包版对 resources/app.asar 取 SHA-256 前 12 位，供用户与 Release 公布值比对 */
 let cachedAppHash: string | null = null
 
 function computeAsarHash(asarPath: string): Promise<string> {
@@ -816,6 +878,27 @@ function registerIpc(): void {
     } finally {
       clearTimeout(timeout)
     }
+  })
+
+  ipcMain.handle('chat:history-get', (event): ChatHistoryMessage[] => {
+    ensureTrustedInvoke(event)
+    return settingsStore.getChatHistory()
+  })
+
+  ipcMain.handle('chat:history-save', (event, rawMessages: unknown): void => {
+    ensureTrustedInvoke(event)
+    settingsStore.setChatHistory(rawMessages)
+  })
+
+  ipcMain.handle('chat:history-clear', (event): void => {
+    ensureTrustedInvoke(event)
+    settingsStore.clearChatHistory()
+  })
+
+  ipcMain.handle('clipboard:write-text', (event, rawText: unknown): void => {
+    ensureTrustedInvoke(event)
+    if (typeof rawText !== 'string') throw new Error('没有可复制的文字。')
+    clipboard.writeText(rawText.slice(0, MAX_CHAT_HISTORY_CONTENT_LENGTH))
   })
 }
 

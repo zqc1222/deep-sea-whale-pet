@@ -3,6 +3,7 @@ import type {
   AppHashInfo,
   AppSettings,
   BondData,
+  ChatHistoryMessage,
   ChatResult,
   PetBridge,
   SettingsPatch,
@@ -11,6 +12,7 @@ import type {
 
 const DEMO_SETTINGS_KEY = 'deepsea-whale-pet:demo-settings'
 const DEMO_BOND_KEY = 'deepsea-whale-pet:demo-bond'
+const DEMO_CHAT_HISTORY_KEY = 'deepsea-whale-pet:demo-chat-history'
 
 const defaults: AppSettings = {
   soundEnabled: true,
@@ -92,6 +94,22 @@ function getDemoBond(): BondData {
   return bond
 }
 
+function loadDemoChatHistory(): ChatHistoryMessage[] {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(DEMO_CHAT_HISTORY_KEY) ?? '[]') as unknown
+    if (!Array.isArray(parsed)) return []
+    return parsed.slice(-100).filter((message): message is ChatHistoryMessage => Boolean(
+      message
+      && typeof message === 'object'
+      && typeof (message as ChatHistoryMessage).id === 'string'
+      && ((message as ChatHistoryMessage).role === 'user' || (message as ChatHistoryMessage).role === 'assistant')
+      && typeof (message as ChatHistoryMessage).content === 'string'
+    ))
+  } catch {
+    return []
+  }
+}
+
 let demoSettings = loadDemoSettings()
 
 const demoBridge: PetBridge = {
@@ -111,6 +129,12 @@ const demoBridge: PetBridge = {
   sendChat: async (): Promise<ChatResult> => ({
     content: '浏览器演示模式不会连接外部模型；启动 Electron 版本后可在设置里安全配置。'
   }),
+  getChatHistory: async (): Promise<ChatHistoryMessage[]> => loadDemoChatHistory(),
+  saveChatHistory: async (messages: ChatHistoryMessage[]): Promise<void> => {
+    localStorage.setItem(DEMO_CHAT_HISTORY_KEY, JSON.stringify(messages.slice(-100)))
+  },
+  clearChatHistory: async (): Promise<void> => localStorage.removeItem(DEMO_CHAT_HISTORY_KEY),
+  copyText: async (text: string): Promise<void> => navigator.clipboard.writeText(text),
   getWeather: async (): Promise<WeatherData> => demoWeather(),
   getBond: async (): Promise<BondData> => getDemoBond(),
   recordFocus: async (minutes: number): Promise<BondData> => {

@@ -49,3 +49,37 @@ Avoid: DeepSeek trademark or logo, realistic human proportions, sexualized cloth
 四套状态以对应女主状态图作为动作和构图参考，以男主概念图作为身份参考；生成提示明确禁止复制女主身份、发型和服装。全部先生成纯洋红键背景，再使用 `remove_chroma_key.py` 的边框自动取色、软遮罩与去色溢出转换为 1254 × 1254 透明 PNG。
 
 透明像素 / 半透明像素检查结果：待机 `1,148,217 / 8,447`，饿了 `1,161,816 / 8,083`，困倦 `1,138,241 / 7,280`，思考 `1,129,300 / 9,391`，工作 `1,154,265 / 8,577`；五张图四角 Alpha 均为 0，并已逐张完成视觉检查。
+
+## Windows 应用图标
+
+`build/icon-v3.png` 是面向桌面快捷方式、开始菜单和安装包的新应用图标。旧版 `build/icon.png` 直接复用了女主全身立绘，缩小后识别度不足，因此新图标改为不区分角色性别的“鲸尾 + 珍珠 + 声呐环”近景徽记；`icon-v2.png` 保留第一版圆角背景草稿，打包配置使用四角处理更干净的 `icon-v3.png`。
+
+从 0.7.4 起，打包时还会把该图复制到 `resources/app-icon.png`，运行中的窗口与 Windows 系统托盘均直接读取这张 PNG，避免 SVG Data URL 在部分 Windows 环境中显示为空白。
+
+生成方式：Codex 内置图像生成工具；以男女主待机图作为项目配色与鲸尾纹样参考，生成 1254 × 1254 的方形 RGB PNG。
+
+最终生成提示词：
+
+```text
+Use case: logo-brand
+Asset type: Windows desktop application icon, square raster PNG, project-bound
+Primary request: Create a premium, compact app icon emblem for the original Chinese desktop pet “深海鲸灵”. Derive only the established visual motifs and polished cel-shaded finish from the two reference character sprites: a symmetrical luminous whale tail rising from a round pearl, with one small cyan sonar ring and two tiny bubble highlights. Do not include either full character, any face, body, hands, clothing, or text.
+Scene/backdrop: full-bleed deep abyss navy rounded-square icon field, subtle radial ocean glow; no transparency required
+Style/medium: crisp hand-polished 2D game icon, simplified bold silhouette, clean cel shading, restrained detail, not photorealistic
+Composition/framing: perfectly centered close-up emblem, whale tail and pearl occupy about 70% of canvas, generous safe margin, strong silhouette readable at 16 px and 32 px
+Lighting/mood: luminous cyan edge light, calm intelligent deep-sea atmosphere
+Color palette: deep navy #071A2F, ocean blue #0E4F87, cyan #39D9FF, soft white #EAFBFF, one tiny coral #FF8B7A accent only
+Constraints: square 1:1; no letters, no Chinese characters, no logo text, no watermark, no mockup, no border outside the square; do not copy any third-party logo or branding; preserve the project’s original whale-tail-and-pearl identity
+Avoid: full-body mascot, human face, tiny intricate linework, crowded bubbles, purple gradient, neon cyberpunk clutter, glossy 3D plastic, illegible micro-details
+```
+
+第二轮只针对第一版四角做了编辑，提示词如下：
+
+```text
+Use case: precise-object-edit
+Asset type: Windows desktop application icon, square raster PNG, project-bound
+Input images: Image 1 is the edit target and must remain visually identical except for the four corners
+Primary request: Replace only the near-black corner wedges outside the rounded navy icon field with a seamless continuation of the same deep abyss navy background, so the entire 1:1 square canvas is filled edge-to-edge with the navy background. Remove the visible rounded-square boundary at the outer corners.
+Constraints: change only the four outer corner/background areas; keep the luminous whale tail, pearl, small fin accents, sonar rings, bubbles, lighting, colors, linework, proportions, placement, and sharpness unchanged; keep 1:1 composition; no new objects; no text; no watermark; no transparency
+Avoid: black corner wedges, corner vignette, rounded outer mask, cropping, changing the emblem, changing the cyan glow, adding borders
+```

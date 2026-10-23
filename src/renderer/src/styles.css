@@ -1008,10 +1008,16 @@ textarea:focus-visible,
   border-bottom: 1px solid rgba(117, 222, 249, 0.1);
 }
 
-.channel-status > div {
+.channel-info {
   display: grid;
   grid-template-columns: 12px auto;
   align-items: center;
+}
+
+.channel-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
 }
 
 .status-light {
@@ -1125,9 +1131,15 @@ textarea:focus-visible,
   align-self: flex-end;
 }
 
+.message-bubble {
+  position: relative;
+  min-width: 0;
+  max-width: 100%;
+}
+
 .message p {
   margin: 0;
-  padding: 10px 12px;
+  padding: 10px 50px 10px 12px;
   border: 1px solid rgba(132, 226, 249, 0.1);
   border-radius: 6px 15px 15px 15px;
   color: rgba(230, 250, 255, 0.9);
@@ -1135,6 +1147,9 @@ textarea:focus-visible,
   font-size: 11px;
   line-height: 1.65;
   white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  cursor: text;
+  user-select: text;
 }
 
 .message.user p {
@@ -1152,6 +1167,28 @@ textarea:focus-visible,
   border: 2px solid var(--cyan-soft);
   border-radius: 50%;
   box-shadow: 0 0 8px rgba(57, 217, 255, 0.6);
+}
+
+.message-copy {
+  position: absolute;
+  top: 6px;
+  right: 7px;
+  padding: 3px 6px;
+  border: 1px solid rgba(113, 222, 249, 0.15);
+  border-radius: 7px;
+  color: rgba(190, 236, 247, 0.58);
+  background: rgba(4, 25, 40, 0.58);
+  font-size: 7px;
+  cursor: pointer;
+  opacity: 0.58;
+  transition: opacity 140ms ease, color 140ms ease, border-color 140ms ease;
+}
+
+.message:hover .message-copy,
+.message-copy:focus-visible {
+  color: var(--cyan-soft);
+  border-color: rgba(57, 217, 255, 0.34);
+  opacity: 1;
 }
 
 .thinking p {

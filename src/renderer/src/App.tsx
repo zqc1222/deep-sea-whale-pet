@@ -14,6 +14,7 @@ import type {
   AppHashInfo,
   AppSettings,
   BondData,
+  ChatHistoryMessage,
   ChatMessage,
   PetAction,
   PetGender,
@@ -109,9 +110,7 @@ const PERSONA_LINES: Record<Exclude<PersonaState, 'idle'>, readonly string[]> = 
   ]
 }
 
-interface UiMessage extends ChatMessage {
-  id: string
-}
+type UiMessage = ChatHistoryMessage
 
 const DEFAULT_SETTINGS: AppSettings = {
   soundEnabled: true,
@@ -476,10 +475,10 @@ export function App(): React.JSX.Element {
   /** 睡觉时用 sleeping 情绪驱动现有睡觉动画，其余时刻沿用交互情绪 */
   const effectiveMood: Mood = isSleeping ? 'sleeping' : mood
 
-  const weatherClass = weather.connected && weather.condition !== 'unknown'
+  const weatherClass = settings.weatherEnabled && weather.connected && weather.condition !== 'unknown'
     ? `weather-${weather.condition}${weather.tempC !== null && weather.tempC < 10 ? ' weather-cold' : ''}`
     : ''
-  const weatherBadge = weather.connected && weather.condition !== 'unknown' && weather.tempC !== null
+  const weatherBadge = settings.weatherEnabled && weather.connected && weather.condition !== 'unknown' && weather.tempC !== null
     ? `${Math.round(weather.tempC)}°C · ${WEATHER_LABELS[weather.condition]}`
     : ''
 
@@ -553,7 +552,7 @@ export function App(): React.JSX.Element {
 
   // 天气台词：新天气出现时播一次随机台词；降温提醒一次
   useEffect(() => {
-    if (weather.connected && weather.condition !== 'unknown') {
+    if (settings.weatherEnabled && weather.connected && weather.condition !== 'unknown') {
       if (weather.condition !== lastWeatherCondition.current && !isSleeping && mode === 'pet') {
         showBubble(randomLine(WEATHER_LINES[weather.condition]), 'happy', 3600)
       }
@@ -570,12 +569,13 @@ export function App(): React.JSX.Element {
       }
       if (weather.tempC !== null) lastWeatherTemp.current = weather.tempC
     }
-  }, [weather, isSleeping, mode, showBubble])
+  }, [weather, isSleeping, mode, settings.weatherEnabled, showBubble])
 
   // 天气专属语音：天气持续期间，隔一段随机时间冒一句该天气台词
   useEffect(() => {
     if (
-      !weather.connected
+      !settings.weatherEnabled
+      || !weather.connected
       || weather.condition === 'unknown'
       || isSleeping
       || mode !== 'pet'
@@ -607,7 +607,7 @@ export function App(): React.JSX.Element {
       disposed = true
       if (timer) window.clearTimeout(timer)
     }
-  }, [weather.connected, weather.condition, isSleeping, mode, isPageVisible, showBubble, settings.soundEnabled])
+  }, [weather.connected, weather.condition, isSleeping, mode, isPageVisible, showBubble, settings.soundEnabled, settings.weatherEnabled])
 
   // 羁绊：加载数据，首次进入时触发新里程碑台词
   useEffect(() => {
@@ -1436,13 +1436,41 @@ function ChatPanel({ settings, onOpenSettings }: ChatPanelProps): React.JSX.Elem
   const [messages, setMessages] = useState<UiMessage[]>(() => initialChatMessages(settings))
   const [input, setInput] = useState('')
   const [isSending, setIsSending] = useState(false)
+  const [historyLoaded, setHistoryLoaded] = useState(false)
+  const [copiedMessageId, setCopiedMessageId] = useState('')
   const [error, setError] = useState('')
   const listRef = useRef<HTMLDivElement>(null)
+  const copyTimerRef = useRef<number | undefined>(undefined)
   const apiSelected = settings.chatMode === 'api'
   const apiConfigured = settings.hasApiKey && Boolean(settings.apiBaseUrl && settings.model)
   const usesModel = apiSelected && apiConfigured
   const channelName = usesModel ? settings.model : apiSelected ? 'API 模式待配置' : '本地陪伴模式'
-  const channelNote = usesModel ? 'API 通道已启用' : apiSelected ? '缺少地址、模型或 Key' : '不消耗 Token · 离线可用'
+  const channelNote = usesModel ? 'API 通道已启用 · 对话本地保存' : apiSelected ? '缺少地址、模型或 Key' : '不消耗 Token · 对话本地保存'
+
+  useEffect(() => {
+    let disposed = false
+    void petBridge.getChatHistory()
+      .then((history) => {
+        if (!disposed && history.length) setMessages(history)
+      })
+      .catch(() => {
+        if (!disposed) setError('历史记录读取失败，本次对话仍可继续。')
+      })
+      .finally(() => {
+        if (!disposed) setHistoryLoaded(true)
+      })
+    return () => { disposed = true }
+  }, [])
+
+  useEffect(() => {
+    if (!historyLoaded) return
+    const history = messages.filter((message) => message.id !== 'welcome')
+    void petBridge.saveChatHistory(history).catch(() => setError('历史记录保存失败。'))
+  }, [historyLoaded, messages])
+
+  useEffect(() => () => {
+    if (copyTimerRef.current) window.clearTimeout(copyTimerRef.current)
+  }, [])
 
   useEffect(() => {
     const list = listRef.current
@@ -1459,7 +1487,7 @@ function ChatPanel({ settings, onOpenSettings }: ChatPanelProps): React.JSX.Elem
   const submit = async (event?: FormEvent): Promise<void> => {
     event?.preventDefault()
     const content = input.trim()
-    if (!content || isSending) return
+    if (!content || isSending || !historyLoaded) return
     if (apiSelected && !apiConfigured) {
       setError('API 模式尚未配置完整，请先在设置中填写地址、模型和 API Key。')
       return
@@ -1484,15 +1512,43 @@ function ChatPanel({ settings, onOpenSettings }: ChatPanelProps): React.JSX.Elem
     }
   }
 
+  const copyMessage = async (message: UiMessage): Promise<void> => {
+    try {
+      await petBridge.copyText(message.content)
+      setCopiedMessageId(message.id)
+      if (copyTimerRef.current) window.clearTimeout(copyTimerRef.current)
+      copyTimerRef.current = window.setTimeout(() => setCopiedMessageId(''), 1600)
+    } catch {
+      setError('复制失败，请选中文字后按 Ctrl+C。')
+    }
+  }
+
+  const clearHistory = async (): Promise<void> => {
+    if (!window.confirm('确定清空全部本地聊天记录吗？此操作无法撤销。')) return
+    try {
+      await petBridge.clearChatHistory()
+      setMessages(initialChatMessages(settings))
+      setCopiedMessageId('')
+      setError('')
+    } catch {
+      setError('聊天记录清除失败。')
+    }
+  }
+
   return (
     <div className="chat-view">
       <div className="channel-status">
-        <div>
+        <div className="channel-info">
           <span className={usesModel ? 'status-light online' : apiSelected ? 'status-light warning' : 'status-light'} />
           <strong>{channelName}</strong>
           <small>{channelNote}</small>
         </div>
-        {!usesModel && <button onClick={onOpenSettings}>{apiSelected ? '完善设置' : '切换模式'}</button>}
+        <div className="channel-actions">
+          {messages.some((message) => message.id !== 'welcome') && (
+            <button type="button" onClick={() => void clearHistory()}>清空记录</button>
+          )}
+          {!usesModel && <button type="button" onClick={onOpenSettings}>{apiSelected ? '完善设置' : '切换模式'}</button>}
+        </div>
       </div>
 
       <div className="message-list" ref={listRef}>
@@ -1500,7 +1556,17 @@ function ChatPanel({ settings, onOpenSettings }: ChatPanelProps): React.JSX.Elem
         {messages.map((message) => (
           <article key={message.id} className={`message ${message.role}`}>
             {message.role === 'assistant' && <span className="message-orb" />}
-            <p>{message.content}</p>
+            <div className="message-bubble">
+              <p>{message.content}</p>
+              <button
+                type="button"
+                className="message-copy"
+                onClick={() => void copyMessage(message)}
+                aria-label="复制这条消息"
+              >
+                {copiedMessageId === message.id ? '已复制' : '复制'}
+              </button>
+            </div>
           </article>
         ))}
         {isSending && (
@@ -1523,6 +1589,7 @@ function ChatPanel({ settings, onOpenSettings }: ChatPanelProps): React.JSX.Elem
       <form className="chat-composer" onSubmit={(event) => void submit(event)}>
         <textarea
           value={input}
+          disabled={!historyLoaded}
           onChange={(event) => setInput(event.target.value)}
           onKeyDown={(event) => {
             if (event.key === 'Enter' && !event.shiftKey) {
@@ -1532,10 +1599,10 @@ function ChatPanel({ settings, onOpenSettings }: ChatPanelProps): React.JSX.Elem
           }}
           rows={1}
           maxLength={2000}
-          placeholder="把想法投入深海频道…"
+          placeholder={historyLoaded ? '把想法投入深海频道…' : '正在打捞历史记录…'}
           aria-label="聊天内容"
         />
-        <button type="submit" disabled={!input.trim() || isSending} aria-label="发送">
+        <button type="submit" disabled={!input.trim() || isSending || !historyLoaded} aria-label="发送">
           <Icon name="send" />
         </button>
       </form>
@@ -1972,16 +2039,16 @@ function SettingsPanel({ settings, bond, onSettingsChange }: SettingsPanelProps)
             <img className="reward-qr" src={rewardQr} alt="打赏作者收款码" draggable={false} />
             <p className="reward-copy">如果这只小鲸鱼曾陪你度过安静的片刻，欢迎扫一扫打赏。每一份心意，都会变成新的灵感和下一版故事。</p>
             <p className="reward-notice">温馨提示：打赏完全自愿，请理性消费、量力而行；不打赏也完全不影响使用。</p>
-            <p className="reward-warning">请从官方 GitHub Release 下载使用；打赏前请核对下方校验码，谨防山寨版偷换收款码。</p>
+            <p className="reward-warning">请只从官方 GitHub Release 下载；下方是当前程序的内容指纹，可帮助核对文件是否与发布版一致，但不能替代系统代码签名。</p>
             <div className="integrity-check">
               {appHash?.packaged && appHash.hash ? (
                 <>
-                  <span>正版校验码</span>
+                  <span>内容指纹</span>
                   <code>{appHash.hash}</code>
-                  <small>与官方 Release 页公布的一致即为官方版本</small>
+                  <small>请与官方 Release 公布值核对；不一致请停止使用</small>
                 </>
               ) : appHash ? (
-                <small>当前为开发版 · 校验码仅对安装版生效</small>
+                <small>当前为开发版 · 内容指纹仅在打包版显示</small>
               ) : null}
             </div>
           </div>
