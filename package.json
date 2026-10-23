@@ -40,7 +40,10 @@
     },
     "files": [
       "out/**/*",
-      "package.json"
+      "package.json",
+      "LICENSE",
+      "docs/LICENSING.md",
+      "docs/ASSET-NOTES.md"
     ],
     "extraResources": [
       {
@@ -65,5 +68,6 @@
     "portable": {
       "artifactName": "DeepSeaWhalePet-Portable-${version}-${arch}.${ext}"
     }
-  }
+  },
+  "license": "MIT"
 }

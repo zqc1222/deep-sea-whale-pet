@@ -15,8 +15,9 @@ import {
 } from 'electron'
 import { execFile } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { createReadStream, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
+import { createReadStream } from 'original-fs'
 import type {
   ActivityProbe,
   AppHashInfo,
@@ -699,7 +700,7 @@ function ensureTrustedEvent(event: IpcMainEvent): boolean {
   return Boolean(petWindow && event.sender === petWindow.webContents)
 }
 
-/** 应用内容指纹：打包版对 resources/app.asar 取 SHA-256 前 12 位，供用户与 Release 公布值比对 */
+/** 辅助文件指纹：app.asar 的 SHA-256 前 12 位，不认证发布者身份，也不覆盖整个安装包 */
 let cachedAppHash: string | null = null
 
 function computeAsarHash(asarPath: string): Promise<string> {

@@ -4,6 +4,27 @@
 
 > 这是非官方同人概念原型，与 DeepSeek 官方无隶属、授权或背书关系。项目没有使用 DeepSeek Logo、官方角色素材或复制的品牌视觉。
 
+
+**DeepSea Whale Pet** is a Windows desktop companion built with Electron, React and TypeScript. It offers animated characters, local preset replies, optional OpenAI-compatible chat, focus sessions, weather reactions and configurable daily routines. Maintained by [zqc1222](https://github.com/zqc1222).
+
+[下载 Windows 版本](https://github.com/zqc1222/deep-sea-whale-pet/releases/latest) · [反馈问题](https://github.com/zqc1222/deep-sea-whale-pet/issues) · [参与维护](CONTRIBUTING.md) · [许可范围](docs/LICENSING.md)
+
+## 安装与开始使用
+
+适用于 Windows 10/11 x64。普通用户无需安装 Node.js：从 Releases 下载 `Setup` 安装版或 `Portable` 便携版，按[核验指南](docs/VERIFY-DOWNLOAD.md)检查后运行。
+
+首次使用可直接选择本地陪伴模式，其回复由内置规则与文案提供，不运行本地大模型。需要模型对话时，在设置里切换 API 模式并填写自己的服务地址、模型和密钥；费用与数据处理方式取决于所选服务。
+
+适合想在桌面获得轻量互动、使用 25 分钟专注计时或配置作息提醒的用户。据维护者估计，约 20 多位同学使用约两个月，目前仍在使用；此为维护者了解的情况，未经独立活跃度统计，不等同于每日活跃用户。具体反馈和分发渠道待补。
+
+## 角色预览
+
+以下为项目角色素材预览，不是软件运行截图。
+
+| 鲸鱼少女 | 鲸鱼少年 |
+| --- | --- |
+| ![鲸鱼少女](src/renderer/assets/whale-girl.png) | ![鲸鱼少年](src/renderer/assets/whale-boy.png) |
+
 ## 已实现
 
 - 透明、无边框、始终置顶的桌宠窗口
@@ -24,19 +45,19 @@
 - 设置页可在本地陪伴与 API 模式之间显式切换，切回本地不会删除已加密的模型配置
 - 桌宠大小支持输入 50%–200% 的任意整数比例，并提供常用尺寸快捷值
 - 25 分钟专注计时
-- 音效、减少动画、开机启动、80% / 100% / 120% 缩放
+- 音效、减少动画、开机启动与自定义缩放
 - Windows 系统托盘：显示/隐藏、聊天、专注、设置、退出
 - 浏览器演示模式，方便不启动 Electron 时检查界面与交互
 - 设置页新增「打赏作者」区块：展示收款码，并提示打赏完全自愿、理性消费、量力而行
 - 天气感知：右上角显示温度徽章，每种天气专属随机语音，天气持续期间也会隔段时间冒一句
-- 「打赏作者」区块显示打包程序的内容指纹，可与官方 Release 公布值核对；该指纹不替代系统代码签名
+- 设置页提供应用文件短指纹，辅助对比构建内容；下载来源及完整性应按[核验指南](docs/VERIFY-DOWNLOAD.md)独立检查
 
 ## 开发运行
 
 环境建议：Node.js 22+，Windows 10/11。
 
 ```powershell
-npm install
+npm ci
 npm run dev
 ```
 
@@ -79,7 +100,7 @@ npm run package
 - `DeepSeaWhalePet-Setup-0.7.5-x64.exe`：可选择安装目录的 Windows 安装版
 - `DeepSeaWhalePet-Portable-0.7.5-x64.exe`：无需安装的便携版
 
-项目没有配置商业代码签名证书，因此 Windows SmartScreen 可能显示“未知发布者”。源码和 SHA-256 校验值都随项目提供；正式公开分发前建议购买并配置 Authenticode 代码签名证书。
+项目没有配置商业代码签名证书，因此 Windows SmartScreen 可能显示“未知发布者”。请按[下载核验指南](docs/VERIFY-DOWNLOAD.md)检查完整文件 Hash。应用内短指纹不能替代发布者签名验证。
 
 默认 `npm run package` 使用镜像下载 Electron 打包组件；网络可直接访问官方 GitHub Releases 时，也可以使用 `npm run package:direct`。
 
@@ -127,3 +148,21 @@ docs/            角色素材来源与生成说明
 ## 设计方向
 
 界面采用“深海观测站里的小精灵”概念：深海蓝为主体，青色声呐线和珊瑚色小点作强调；面板使用不规则圆角、细网格与数据深度刻度，避免常见的通用 SaaS 卡片风格。
+
+## 数据与隐私
+
+- 设置、窗口位置及羁绊记录保存在本机；API Key 由系统安全存储能力加密。
+- API 模式会将对话发送给你配置的模型服务；本地陪伴模式不发送模型请求。
+- 开启天气后，会向天气服务请求城市或经纬度对应的天气。
+- 主动关怀读取前台窗口标题和空闲时长用于本地分类，不通过该功能上传窗口标题；可在设置里关闭。
+- 反馈时不要附带密钥、私人聊天或含个人信息的窗口标题。
+
+## 版本与维护
+
+历史发布见 [Releases](https://github.com/zqc1222/deep-sea-whale-pet/releases)，源码修改见[提交记录](https://github.com/zqc1222/deep-sea-whale-pet/commits/main/)。各版本说明保存在 `docs/release-*.md`。历史版本中记录的验证结果不代表当前源码已重新通过同样的检查。
+
+主要维护者为 [zqc1222](https://github.com/zqc1222)，问题和建议请通过 [Issues](https://github.com/zqc1222/deep-sea-whale-pet/issues) 提交。使用情况与反馈的待补材料见[证据整理表](docs/MAINTAINER-EVIDENCE.md)。
+
+## 许可证
+
+代码与文档采用 [MIT](LICENSE)。原创角色素材的授权范围、收款码例外以及第三方组件说明见[许可说明](docs/LICENSING.md)，素材生成记录见[ASSET-NOTES](docs/ASSET-NOTES.md)。`package.json` 中的 `private: true` 用于防止误发布到 npm，不表示 GitHub 仓库私有。

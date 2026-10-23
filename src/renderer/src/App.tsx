@@ -2039,16 +2039,16 @@ function SettingsPanel({ settings, bond, onSettingsChange }: SettingsPanelProps)
             <img className="reward-qr" src={rewardQr} alt="打赏作者收款码" draggable={false} />
             <p className="reward-copy">如果这只小鲸鱼曾陪你度过安静的片刻，欢迎扫一扫打赏。每一份心意，都会变成新的灵感和下一版故事。</p>
             <p className="reward-notice">温馨提示：打赏完全自愿，请理性消费、量力而行；不打赏也完全不影响使用。</p>
-            <p className="reward-warning">请只从官方 GitHub Release 下载；下方是当前程序的内容指纹，可帮助核对文件是否与发布版一致，但不能替代系统代码签名。</p>
+            <p className="reward-warning">请从 zqc1222/deep-sea-whale-pet 的 Releases 下载，并在应用外核对安装文件的 SHA-256；打赏前请另行确认收款人。</p>
             <div className="integrity-check">
               {appHash?.packaged && appHash.hash ? (
                 <>
-                  <span>内容指纹</span>
+                  <span>应用文件指纹</span>
                   <code>{appHash.hash}</code>
-                  <small>请与官方 Release 公布值核对；不一致请停止使用</small>
+                  <small>仅辅助对比应用文件，不能单独证明来源或收款码真实性。</small>
                 </>
               ) : appHash ? (
-                <small>当前为开发版 · 内容指纹仅在打包版显示</small>
+                <small>{appHash.packaged ? '应用文件指纹读取失败，请在应用外核对下载文件。' : '当前为开发模式，不提供应用文件指纹。'}</small>
               ) : null}
             </div>
           </div>

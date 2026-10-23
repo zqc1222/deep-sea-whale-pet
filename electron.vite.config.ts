@@ -9,6 +9,7 @@ export default defineConfig({
     plugins: [externalizeDepsPlugin()],
     build: {
       rollupOptions: {
+        external: ['original-fs'],
         input: fileURLToPath(new URL('./src/main/index.ts', import.meta.url))
       }
     }

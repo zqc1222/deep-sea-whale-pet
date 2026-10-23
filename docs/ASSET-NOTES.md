@@ -1,5 +1,7 @@
 # 角色素材说明
 
+素材授权范围见 [LICENSING.md](LICENSING.md)；本文件记录生成来源和处理过程，不将收款码归为角色素材。
+
 `src/renderer/assets/whale-girl.png` 是为本项目新生成的原创角色素材，不是 DeepSeek 官方角色或 Logo。
 
 生成方式：Codex 内置图像生成工具；先生成纯洋红键背景，再通过本地 `remove_chroma_key.py` 抠成透明 PNG。
